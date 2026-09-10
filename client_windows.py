@@ -50,17 +50,35 @@ def normalize(text):
 
 
 # ---------- speech out (Piper via tts.py) ----------
+# Playback runs on its own thread so speak() NEVER blocks the assistant.
+_speak_q = queue.Queue()
+_speak_n = 0
+
+
+def _speaker_worker():
+    while True:
+        text = _speak_q.get()
+        try:
+            data = tts.synth_wav(text)
+            if data:
+                global _speak_n
+                _speak_n = (_speak_n + 1) % 4          # rotate temp files to avoid races
+                tmp = os.path.join(tempfile.gettempdir(), f"master_tts_{_speak_n}.wav")
+                with open(tmp, "wb") as f:
+                    f.write(data)
+                winsound.PlaySound(tmp, winsound.SND_FILENAME)
+        except Exception as e:
+            log(f"(voice error: {e})")
+        finally:
+            _speak_q.task_done()
+
+
+threading.Thread(target=_speaker_worker, daemon=True).start()
+
+
 def speak(text):
-    data = tts.synth_wav(text)
-    if not data:
-        return
-    try:
-        tmp = os.path.join(tempfile.gettempdir(), "master_tts.wav")
-        with open(tmp, "wb") as f:
-            f.write(data)
-        winsound.PlaySound(tmp, winsound.SND_FILENAME)
-    except Exception as e:
-        log(f"(voice error: {e})")
+    if text and text.strip():
+        _speak_q.put(text.strip())
 
 
 tools.on_timer = speak       # timers announce themselves
@@ -189,6 +207,7 @@ def handle(text):
         _append(f"You: {text}\n\n")
         if is_stop(text):
             speak("Goodbye.")
+            _speak_q.join()               # let "Goodbye" actually play
             if _ui["quit"]:
                 _ui["quit"]()
             return

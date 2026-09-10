@@ -220,7 +220,10 @@ def respond(user_text, on_text=None, on_status=None):
     rounds = 0
     try:
         while True:
+            was = backend
             message = ask_model(work, use_tools=(rounds < MAX_TOOL_ROUNDS), on_text=on_text)
+            if backend != was and backend == "ollama" and on_status:
+                on_status("cloud limit reached - using the local model, this is slower…")
             work.append(message)
 
             tool_calls = message.get("tool_calls")
