@@ -42,53 +42,55 @@ off for a type-only session.
 
 ---
 
-## Requirements
+## Download & run (no Python needed)
 
-- **Windows 10 / 11**
-- **Python 3.10+**
-- **[Ollama](https://ollama.com)** with a small model pulled — free, runs offline:
-  ```
-  ollama pull qwen2.5:3b
-  ```
-- *(optional)* a free **[Groq API key](https://console.groq.com/keys)** for ~1-second replies instead of ~5–10s
-- A **Piper voice model** (downloaded in step 4 below)
+1. Grab **`MASTER-windows.zip`** from the [Releases](../../releases) page and unzip it anywhere.
+2. **For the free local model:** install [Ollama](https://ollama.com), then run once:
+   ```
+   ollama pull qwen2.5:3b
+   ```
+   *(Skip this if you'll use a Groq key instead.)*
+3. Double-click **`MASTER.exe`**. On first launch, pick **On this PC** or paste a free
+   **[Groq key](https://console.groq.com/keys)** for faster replies.
+
+Settings, history, memory and reminders are all saved inside the app's own folder.
+
+> Windows SmartScreen may warn about an unsigned app — *More info → Run anyway*.
 
 ---
 
-## Setup
+## Run from source (for developers)
+
+Requires **Windows 10/11** and **Python 3.10+**.
 
 ```bash
-git clone https://github.com/<your-username>/MASTER.git
-cd MASTER
+git clone https://github.com/0404arnav-blip/M.A.S.T.E.R.git
+cd M.A.S.T.E.R
 
 python -m venv venv
 venv\Scripts\activate
-
 pip install -r requirements.txt
-```
 
-**Download the voice** (Indian-accented English by default):
-
-```bash
 python -m piper.download_voices --download-dir voices en_US-kusal-medium
-```
+copy config.json.example config.json
 
-**Create your config** — copy `config.json.example` to `config.json`. Leave `groq_api_key`
-empty to run fully local on Ollama, or paste a key and set `"backend": "groq"`.
-On first run a small window also lets you choose.
-
----
-
-## Running it
-
-```bash
 python Master_code.py
 ```
 
 A startup window asks **"On this PC (Ollama)"** or **"Use Groq"**, then the assistant window
 opens. Talk any time, or type in the box. Say or type **"goodbye"** to stop.
-
 For a windowless launch, make a shortcut to `venv\Scripts\pythonw.exe Master_code.py`.
+
+### Build the .exe
+
+With the venv active:
+
+```bash
+build.bat
+```
+
+Produces `dist\MASTER\MASTER.exe` (a self-contained folder) and `dist\MASTER-windows.zip`.
+Build recipe: [`MASTER.spec`](MASTER.spec).
 
 ---
 

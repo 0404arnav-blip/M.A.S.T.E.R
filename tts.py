@@ -2,18 +2,16 @@
 Loads the voice once; synth_wav() returns WAV bytes."""
 
 import io
-import os
 import re
 import wave
 
+import apppath  # noqa: F401  (sets the working dir - import before piper loads a model)
 from piper import PiperVoice, SynthesisConfig
 
 # say the acronym as a word, not letter-by-letter
 _SPOKEN_FIXES = [
     (re.compile(r"\bM\.?\s*A\.?\s*S\.?\s*T\.?\s*E\.?\s*R\b", re.I), "Master"),
 ]
-
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 PIPER_MODEL = "voices/en_US-kusal-medium.onnx"   # Indian-accented English
 VOICE_SPEED = 1.05                               # slightly slower = clearer

@@ -25,3 +25,8 @@ voices/
 # --- scratch / test files ---
 _*.py
 _*.txt
+
+# --- build output ---
+build/
+dist/
+*.zip

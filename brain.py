@@ -8,14 +8,12 @@ import json
 import threading
 import traceback
 
+import apppath          # sets the working dir (source or packaged .exe)
 import requests
 
 import tools
 
-# always work relative to this folder, no matter where we're launched from
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
-
-LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "master_error.log")
+LOG_FILE = apppath.LOG_FILE
 
 
 def _log_crash(exc_type, exc, tb):

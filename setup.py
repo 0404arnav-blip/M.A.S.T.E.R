@@ -9,7 +9,7 @@ import os
 import json
 import webbrowser
 
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
+import apppath  # noqa: F401  (sets working dir)
 
 CONFIG_FILE = "config.json"
 GROQ_KEYS_PAGE = "https://console.groq.com/keys"
