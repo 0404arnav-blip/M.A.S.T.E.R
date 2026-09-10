@@ -4,6 +4,7 @@ Also runs the device-control tools (they act on this PC)."""
 import io
 import os
 import re
+import time
 import queue
 import threading
 import tempfile
@@ -53,11 +54,13 @@ def normalize(text):
 # Playback runs on its own thread so speak() NEVER blocks the assistant.
 _speak_q = queue.Queue()
 _speak_n = 0
+speaking = threading.Event()          # set while M.A.S.T.E.R is talking (mic ignores input then)
 
 
 def _speaker_worker():
     while True:
         text = _speak_q.get()
+        speaking.set()
         try:
             data = tts.synth_wav(text)
             if data:
@@ -71,6 +74,10 @@ def _speaker_worker():
             log(f"(voice error: {e})")
         finally:
             _speak_q.task_done()
+            if _speak_q.empty():
+                time.sleep(0.15)                       # tiny grace for a straggling sentence
+                if _speak_q.empty():
+                    speaking.clear()
 
 
 threading.Thread(target=_speaker_worker, daemon=True).start()
@@ -131,6 +138,11 @@ def listen(cue=True):
         try:
             block = _audio_q.get(timeout=1.0)
         except queue.Empty:
+            continue
+
+        if speaking.is_set():            # M.A.S.T.E.R started talking - don't record it
+            frames, triggered, silent, voiced = [], False, 0, 0
+            _drain()
             continue
 
         s = np.frombuffer(block, dtype=np.int16)
@@ -255,10 +267,13 @@ def _voice_loop():
         return
     while True:
         _voice_on.wait()               # blocks here whenever voice input is turned off
+        while speaking.is_set():        # don't listen while M.A.S.T.E.R is talking
+            time.sleep(0.1)
+        time.sleep(0.35)               # let the speaker echo die down
         audio = listen(cue=True)
         if audio is None:
             continue
-        if not _voice_on.is_set():      # turned off mid-capture - drop it
+        if not _voice_on.is_set() or speaking.is_set():   # dropped: toggled off, or that was our own voice
             continue
         text = normalize(transcribe(audio))
         log(f"heard: {text!r}")
