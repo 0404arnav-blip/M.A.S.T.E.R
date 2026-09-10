@@ -1,0 +1,5 @@
+{
+  "groq_api_key": "",
+  "backend": "ollama",
+  "ask_on_start": true
+}

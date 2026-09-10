@@ -1,0 +1,27 @@
+# --- secrets & personal data (never commit) ---
+config.json
+history.json
+memory.json
+reminders.json
+contacts.json
+tasks.json
+
+# --- runtime / logs ---
+master_error.log
+__pycache__/
+*.pyc
+*.wav
+
+# --- virtual environment ---
+venv/
+.venv/
+
+# --- large model files: download separately (see README) ---
+voices/
+
+# --- windows shortcuts (machine-specific paths) ---
+*.lnk
+
+# --- scratch / test files ---
+_*.py
+_*.txt
