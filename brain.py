@@ -5,6 +5,7 @@ import sys
 import os
 import re
 import json
+import time
 import threading
 import traceback
 
@@ -154,14 +155,21 @@ def ollama_chat(msgs, use_tools, on_text=None):
     return message
 
 
+_groq_retry_at = 0.0     # once we fall back, don't retry Groq until this time (epoch secs)
+_GROQ_COOLDOWN = 45      # a Groq rate limit resets per-minute; try again after this long
+
+
 def ask_model(msgs, use_tools, on_text=None):
-    global backend
+    global backend, _groq_retry_at
+    if backend == "ollama" and API_KEY and time.time() >= _groq_retry_at:
+        backend = "groq"                     # cooldown elapsed - give Groq another chance
     if backend == "groq":
         try:
             return groq_stream(msgs, use_tools, on_text=on_text)
         except (requests.exceptions.RequestException, RuntimeError) as e:
             log(f"(groq unavailable: {e} - trying local model)")
             backend = "ollama"
+            _groq_retry_at = time.time() + _GROQ_COOLDOWN
     return ollama_chat(msgs, use_tools, on_text=on_text)
 
 

@@ -904,440 +904,158 @@ def list_tasks():
 
 # ---------- the menu the model sees ----------
 
+# Descriptions here are deliberately terse - the full schema is sent on EVERY
+# model call, and its token cost eats into API rate limits. Keep only what
+# disambiguates the tool; skip "use when the user asks..." filler the model
+# already infers from the request itself.
 TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_time",
-            "description": "Get the current real date and time. Use whenever the user asks about the current time, date, or day of the week.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "web_search",
-            "description": "Search the web for current or factual information. Use for news, recent events, prices, people, or anything you are not sure about.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "the search terms"}
-                },
-                "required": ["query"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_weather",
-            "description": "Get the current weather for a place. Use when the user asks about weather, temperature, or conditions somewhere.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "place": {"type": "string", "description": "city or place name, e.g. 'London' or 'Mumbai'"}
-                },
-                "required": ["place"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "open_website",
-            "description": "Open a web page in the user's browser. Use when the user asks to open, go to, or pull up a website.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {"type": "string", "description": "the address, e.g. 'youtube.com' or 'https://news.bbc.co.uk'"}
-                },
-                "required": ["url"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "open_app",
-            "description": "Launch a program installed on this Windows computer. Use when the user asks to open or start an app like notepad, calculator, chrome, or spotify.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "description": "the program name, e.g. 'notepad', 'calc', 'chrome'"}
-                },
-                "required": ["name"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "media_control",
-            "description": "Control media playback or system volume. Use for pause, play, skip track, previous track, stop, louder, quieter, or mute.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        "enum": ["play_pause", "next", "previous", "stop", "volume_up", "volume_down", "mute"],
-                    }
-                },
-                "required": ["action"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "system_control",
-            "description": "Lock the screen or put the computer to sleep. Use only when the user clearly asks to lock or sleep the PC.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "action": {"type": "string", "enum": ["lock", "sleep"]}
-                },
-                "required": ["action"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "set_timer",
-            "description": "Set a countdown timer. It will speak up when the time is up. Use when the user asks to set a timer or remind them in N minutes.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "minutes": {"type": "number", "description": "how many minutes (may be fractional, e.g. 0.5 for 30 seconds)"},
-                    "label": {"type": "string", "description": "optional short name for what the timer is for"},
-                },
-                "required": ["minutes"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "create_word_document",
-            "description": "Create a Word document and open it. First write the full document text yourself, then pass it. Use blank lines between paragraphs; '# ' for a heading, '## ' for a sub-heading, '- ' for bullets.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string", "description": "the document title"},
-                    "content": {"type": "string", "description": "the full body text you have written"},
-                },
-                "required": ["title", "content"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "create_powerpoint",
-            "description": "Create a PowerPoint presentation and open it. Write the slides yourself first. Each slide: a title line, then '- ' bullet lines, then optionally a line 'image: <short description of a picture to show>'. Add image lines wherever a picture would help. Separate slides with a blank line.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string", "description": "the presentation title"},
-                    "slides": {"type": "string", "description": "the slides you have written, in the described format, with 'image:' lines where useful"},
-                },
-                "required": ["title", "slides"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "create_spreadsheet",
-            "description": "Create an Excel spreadsheet and open it. Build the data yourself first: one row per line, cells separated by | or comma; put a header row first.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string", "description": "the sheet name"},
-                    "data": {"type": "string", "description": "the rows you have built"},
-                },
-                "required": ["title", "data"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "draft_email",
-            "description": "Open a pre-filled email draft in the user's mail app for them to review and send. Write the body yourself. This never sends - the user sends it. Keep the body reasonably short.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "to": {"type": "string", "description": "recipient email address, or empty if unknown"},
-                    "subject": {"type": "string"},
-                    "body": {"type": "string", "description": "the full email body you have written"},
-                },
-                "required": ["subject", "body"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_calendar_events",
-            "description": "List the user's upcoming Outlook calendar events. Use when the user asks what's on their calendar or schedule.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "days": {"type": "integer", "description": "how many days ahead to look (default 7)"}
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "add_calendar_event",
-            "description": "Create a calendar invite and open it for the user to add to their calendar. Does not save it automatically. Give an absolute date-time.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string"},
-                    "start": {"type": "string", "description": "absolute start as 'YYYY-MM-DD HH:MM' (24-hour). Check today's date first if the user said something relative like 'tomorrow'."},
-                    "minutes": {"type": "integer", "description": "duration in minutes (default 60)"},
-                },
-                "required": ["title", "start"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "remember",
-            "description": "Store a fact about the user for the long term (preferences, people, passwords, dates, anything). Use when the user says to remember something.",
-            "parameters": {
-                "type": "object",
-                "properties": {"fact": {"type": "string", "description": "the fact to store, as a full sentence"}},
-                "required": ["fact"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "recall",
-            "description": "Look up facts the user has asked you to remember. Use when they ask what you know about something or a stored detail.",
-            "parameters": {
-                "type": "object",
-                "properties": {"topic": {"type": "string", "description": "what to look up; leave empty to list everything"}},
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "forget",
-            "description": "Delete stored facts that match a topic.",
-            "parameters": {
-                "type": "object",
-                "properties": {"topic": {"type": "string"}},
-                "required": ["topic"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "set_reminder",
-            "description": "Set a one-off reminder for a specific time. It will speak up then, and survives restarts. For a relative time like 'in an hour' or 'tomorrow', call get_time first and work out the absolute time.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "text": {"type": "string", "description": "what to remind about"},
-                    "at": {"type": "string", "description": "absolute time as 'YYYY-MM-DD HH:MM' (24-hour)"},
-                },
-                "required": ["text", "at"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "set_recurring_reminder",
-            "description": "Set a repeating reminder at a time of day.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "text": {"type": "string"},
-                    "time": {"type": "string", "description": "time of day as 'HH:MM' (24-hour)"},
-                    "repeat": {"type": "string", "description": "'daily', 'weekdays', 'weekends', or days like 'mon,wed,fri'"},
-                },
-                "required": ["text", "time"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_reminders",
-            "description": "List the user's active reminders.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "cancel_reminder",
-            "description": "Cancel a reminder by its number (from list_reminders) or by matching its text.",
-            "parameters": {
-                "type": "object",
-                "properties": {"which": {"type": "string", "description": "a number or text to match"}},
-                "required": ["which"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "call",
-            "description": "Start a phone call through the user's linked phone. Give a saved contact name or a phone number. This starts a real call.",
-            "parameters": {
-                "type": "object",
-                "properties": {"target": {"type": "string", "description": "a saved contact name or a phone number"}},
-                "required": ["target"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "add_contact",
-            "description": "Save a phone number under a name for later calling.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "number": {"type": "string", "description": "phone number, ideally with country code"},
-                },
-                "required": ["name", "number"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_contacts",
-            "description": "List the user's saved phone contacts.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "find_file",
-            "description": "Search the user's Desktop, Documents, Downloads and home folder for files by name.",
-            "parameters": {
-                "type": "object",
-                "properties": {"name": {"type": "string", "description": "part of the file name"}},
-                "required": ["name"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_file",
-            "description": "Read a text, PDF, Word or Excel file and return its contents, so you can summarise it or read it aloud. Accepts a full path or a filename to search for.",
-            "parameters": {
-                "type": "object",
-                "properties": {"path_or_name": {"type": "string", "description": "a file path, or part of a filename"}},
-                "required": ["path_or_name"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "add_task",
-            "description": "Add a single task or reminder to the user's to-do list. Use when the user asks to remember, note, or add something to do.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "text": {"type": "string", "description": "the task to add"}
-                },
-                "required": ["text"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_tasks",
-            "description": "Show everything on the user's to-do list. Use when the user asks what their tasks, to-dos, or reminders are.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "calculate",
-            "description": "Work out a maths expression exactly. Use for any arithmetic instead of doing it in your head.",
-            "parameters": {
-                "type": "object",
-                "properties": {"expression": {"type": "string", "description": "e.g. '12.5 * (3 + 4) / 2' or 'sqrt(144)'"}},
-                "required": ["expression"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "clipboard_read",
-            "description": "Read the text currently on the clipboard. Use when the user asks what's on their clipboard or refers to 'this' they've copied.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "clipboard_write",
-            "description": "Put text onto the clipboard so the user can paste it.",
-            "parameters": {
-                "type": "object",
-                "properties": {"text": {"type": "string"}},
-                "required": ["text"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "system_status",
-            "description": "Report this PC's battery, CPU load, memory use and free disk space.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "take_screenshot",
-            "description": "Take a screenshot of the whole screen, save it, and open it.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "convert_currency",
-            "description": "Convert an amount of money from one currency to another using live rates.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "amount": {"type": "number"},
-                    "from_code": {"type": "string", "description": "3-letter code, e.g. USD"},
-                    "to_code": {"type": "string", "description": "3-letter code, e.g. INR"},
-                },
-                "required": ["amount", "from_code", "to_code"],
-            },
-        },
-    },
+    {"type": "function", "function": {
+        "name": "get_time", "description": "Current date and time.",
+        "parameters": {"type": "object", "properties": {}, "required": []}}},
+    {"type": "function", "function": {
+        "name": "web_search", "description": "Search the web for current facts, news, or anything you're unsure of.",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string"}}, "required": ["query"]}}},
+    {"type": "function", "function": {
+        "name": "get_weather", "description": "Current weather for a place.",
+        "parameters": {"type": "object", "properties": {
+            "place": {"type": "string"}}, "required": ["place"]}}},
+    {"type": "function", "function": {
+        "name": "open_website", "description": "Open a URL in the browser.",
+        "parameters": {"type": "object", "properties": {
+            "url": {"type": "string"}}, "required": ["url"]}}},
+    {"type": "function", "function": {
+        "name": "open_app", "description": "Launch a Windows program by name.",
+        "parameters": {"type": "object", "properties": {
+            "name": {"type": "string"}}, "required": ["name"]}}},
+    {"type": "function", "function": {
+        "name": "media_control", "description": "Media playback / volume keys.",
+        "parameters": {"type": "object", "properties": {
+            "action": {"type": "string", "enum": ["play_pause", "next", "previous", "stop",
+                                                  "volume_up", "volume_down", "mute"]}},
+            "required": ["action"]}}},
+    {"type": "function", "function": {
+        "name": "system_control", "description": "Lock the screen or sleep the PC (only on a clear request).",
+        "parameters": {"type": "object", "properties": {
+            "action": {"type": "string", "enum": ["lock", "sleep"]}}, "required": ["action"]}}},
+    {"type": "function", "function": {
+        "name": "set_timer", "description": "Countdown timer; announces itself when done.",
+        "parameters": {"type": "object", "properties": {
+            "minutes": {"type": "number", "description": "may be fractional, e.g. 0.5"},
+            "label": {"type": "string", "description": "optional, what it's for"}},
+            "required": ["minutes"]}}},
+    {"type": "function", "function": {
+        "name": "create_word_document",
+        "description": "Write the content yourself, then create a Word doc and open it. Blank line = new paragraph; '# '/'## ' = headings; '- ' = bullets.",
+        "parameters": {"type": "object", "properties": {
+            "title": {"type": "string"}, "content": {"type": "string", "description": "full body text you wrote"}},
+            "required": ["title", "content"]}}},
+    {"type": "function", "function": {
+        "name": "create_powerpoint",
+        "description": "Write the slides yourself, then create a PowerPoint and open it. Each slide: title line, '- ' bullets, optional 'image: <desc>' line; blank line between slides.",
+        "parameters": {"type": "object", "properties": {
+            "title": {"type": "string"}, "slides": {"type": "string", "description": "slides you wrote, in the described format"}},
+            "required": ["title", "slides"]}}},
+    {"type": "function", "function": {
+        "name": "create_spreadsheet",
+        "description": "Write the data yourself, then create an Excel file and open it. One row per line, cells separated by | or comma, header row first.",
+        "parameters": {"type": "object", "properties": {
+            "title": {"type": "string"}, "data": {"type": "string", "description": "rows you built"}},
+            "required": ["title", "data"]}}},
+    {"type": "function", "function": {
+        "name": "draft_email",
+        "description": "Write the body yourself, then open a pre-filled draft in the mail app. Never sends - the user sends it. Keep it short.",
+        "parameters": {"type": "object", "properties": {
+            "to": {"type": "string", "description": "recipient, or empty if unknown"},
+            "subject": {"type": "string"}, "body": {"type": "string"}},
+            "required": ["subject", "body"]}}},
+    {"type": "function", "function": {
+        "name": "list_calendar_events", "description": "List upcoming Outlook calendar events.",
+        "parameters": {"type": "object", "properties": {
+            "days": {"type": "integer", "description": "days ahead, default 7"}}, "required": []}}},
+    {"type": "function", "function": {
+        "name": "add_calendar_event",
+        "description": "Create a calendar invite to open and accept (not saved automatically). Give an absolute date-time.",
+        "parameters": {"type": "object", "properties": {
+            "title": {"type": "string"},
+            "start": {"type": "string", "description": "'YYYY-MM-DD HH:MM' 24h. For a relative day like 'tomorrow', call get_time first."},
+            "minutes": {"type": "integer", "description": "duration, default 60"}},
+            "required": ["title", "start"]}}},
+    {"type": "function", "function": {
+        "name": "remember", "description": "Save a fact about the user for the long term.",
+        "parameters": {"type": "object", "properties": {
+            "fact": {"type": "string", "description": "as a full sentence"}}, "required": ["fact"]}}},
+    {"type": "function", "function": {
+        "name": "recall", "description": "Look up a saved fact.",
+        "parameters": {"type": "object", "properties": {
+            "topic": {"type": "string", "description": "empty = list everything"}}, "required": []}}},
+    {"type": "function", "function": {
+        "name": "forget", "description": "Delete saved facts matching a topic.",
+        "parameters": {"type": "object", "properties": {"topic": {"type": "string"}}, "required": ["topic"]}}},
+    {"type": "function", "function": {
+        "name": "set_reminder",
+        "description": "One-off reminder at an absolute time; speaks up then, survives restarts. For a relative time, call get_time first.",
+        "parameters": {"type": "object", "properties": {
+            "text": {"type": "string"}, "at": {"type": "string", "description": "'YYYY-MM-DD HH:MM' 24h"}},
+            "required": ["text", "at"]}}},
+    {"type": "function", "function": {
+        "name": "set_recurring_reminder", "description": "Repeating reminder at a time of day.",
+        "parameters": {"type": "object", "properties": {
+            "text": {"type": "string"}, "time": {"type": "string", "description": "'HH:MM' 24h"},
+            "repeat": {"type": "string", "description": "daily / weekdays / weekends / 'mon,wed,fri'"}},
+            "required": ["text", "time"]}}},
+    {"type": "function", "function": {
+        "name": "list_reminders", "description": "List active reminders.",
+        "parameters": {"type": "object", "properties": {}, "required": []}}},
+    {"type": "function", "function": {
+        "name": "cancel_reminder", "description": "Cancel a reminder by number (from list_reminders) or matching text.",
+        "parameters": {"type": "object", "properties": {"which": {"type": "string"}}, "required": ["which"]}}},
+    {"type": "function", "function": {
+        "name": "call", "description": "Call a saved contact or number via the linked phone. Starts a real call.",
+        "parameters": {"type": "object", "properties": {"target": {"type": "string"}}, "required": ["target"]}}},
+    {"type": "function", "function": {
+        "name": "add_contact", "description": "Save a phone number under a name.",
+        "parameters": {"type": "object", "properties": {
+            "name": {"type": "string"}, "number": {"type": "string", "description": "ideally with country code"}},
+            "required": ["name", "number"]}}},
+    {"type": "function", "function": {
+        "name": "list_contacts", "description": "List saved phone contacts.",
+        "parameters": {"type": "object", "properties": {}, "required": []}}},
+    {"type": "function", "function": {
+        "name": "find_file", "description": "Find a file by name in Desktop/Documents/Downloads/home.",
+        "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}}},
+    {"type": "function", "function": {
+        "name": "read_file",
+        "description": "Read a text/PDF/Word/Excel file's contents (to summarise or read aloud). Path or filename to search for.",
+        "parameters": {"type": "object", "properties": {"path_or_name": {"type": "string"}}, "required": ["path_or_name"]}}},
+    {"type": "function", "function": {
+        "name": "add_task", "description": "Add an item to the to-do list.",
+        "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}},
+    {"type": "function", "function": {
+        "name": "list_tasks", "description": "Show the to-do list.",
+        "parameters": {"type": "object", "properties": {}, "required": []}}},
+    {"type": "function", "function": {
+        "name": "calculate", "description": "Evaluate a maths expression exactly (use instead of doing arithmetic yourself).",
+        "parameters": {"type": "object", "properties": {
+            "expression": {"type": "string", "description": "e.g. '12.5*(3+4)/2' or 'sqrt(144)'"}}, "required": ["expression"]}}},
+    {"type": "function", "function": {
+        "name": "clipboard_read", "description": "Read the current clipboard text.",
+        "parameters": {"type": "object", "properties": {}, "required": []}}},
+    {"type": "function", "function": {
+        "name": "clipboard_write", "description": "Put text on the clipboard.",
+        "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}},
+    {"type": "function", "function": {
+        "name": "system_status", "description": "Battery, CPU, memory and disk status of this PC.",
+        "parameters": {"type": "object", "properties": {}, "required": []}}},
+    {"type": "function", "function": {
+        "name": "take_screenshot", "description": "Screenshot the screen, save it, and open it.",
+        "parameters": {"type": "object", "properties": {}, "required": []}}},
+    {"type": "function", "function": {
+        "name": "convert_currency", "description": "Convert money between currencies at live rates.",
+        "parameters": {"type": "object", "properties": {
+            "amount": {"type": "number"}, "from_code": {"type": "string", "description": "e.g. USD"},
+            "to_code": {"type": "string", "description": "e.g. INR"}},
+            "required": ["amount", "from_code", "to_code"]}}},
 ]
 
 TOOL_FUNCTIONS = {
