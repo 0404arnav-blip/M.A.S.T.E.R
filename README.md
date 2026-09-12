@@ -37,7 +37,11 @@ off for a type-only session.
 - **Automatic memory** — before every reply it searches your saved facts and older
   conversation for anything relevant and feeds it in, so it recalls things you told it long ago.
 - **Graceful fallback** — if the cloud model is rate-limited or offline it switches to the
-  local model; if both are unreachable it tells you instead of going silent.
+  local model, and automatically tries the cloud again after a short cooldown instead of
+  staying on the slower model for the rest of the session; if both are unreachable it tells
+  you instead of going silent.
+- **Doesn't hear itself** — the microphone is paused while it's speaking, so it can't pick up
+  its own voice through the speakers and reply to itself.
 - **History is capped** at 600 messages so it never grows without bound.
 
 ---
