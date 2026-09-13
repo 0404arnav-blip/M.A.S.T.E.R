@@ -127,6 +127,27 @@ Build recipe: [`MASTER.spec`](MASTER.spec).
 
 ---
 
+## Security & scope
+
+**M.A.S.T.E.R cannot learn, install, or execute a new skill on its own.** Its abilities are
+exactly the 34 tools listed above — a fixed list written into `tools.py` by a developer. This
+isn't just a prompt instruction; it's how the code works:
+
+- The model can only ever call a function that already exists in `tools.TOOL_FUNCTIONS`. If it
+  names anything else, the answer is simply "no tool named X" — nothing runs.
+- There is **no** "run this code" / "execute a shell command" tool anywhere in the tool set.
+- The one place that evaluates an expression — `calculate()` — is sandboxed: no builtins, no
+  attribute or dunder access (`__` is rejected outright), and only digits, basic operators, and
+  a fixed list of math functions are allowed through.
+- New capabilities can only be added the normal way: a person writes a new tool function and
+  registers it in `tools.py`. The assistant has no mechanism to add, modify, or persist one
+  itself, across a session or between restarts.
+
+The system prompt also tells the model this explicitly, so if asked to do something outside its
+tools, it says so rather than improvising a workaround.
+
+---
+
 ## Notes & limitations
 
 - **Windows only** — uses `winsound`, Phone Link, Outlook COM, `Get-StartApps`, etc.

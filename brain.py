@@ -68,7 +68,12 @@ SYSTEM_PROMPT = (
     "call / add_contact for phone calls, and add_task / list_tasks for the to-do list. "
     "Do NOT call a tool for normal conversation or things you already know. "
     "When a tool result is given, trust it and answer from it. "
-    "When you used web_search for a fact, finish with one short line: 'Source: <site name>'."
+    "When you used web_search for a fact, finish with one short line: 'Source: <site name>'.\n"
+    "SECURITY: your abilities are exactly the tools listed to you - nothing more. You cannot "
+    "learn, create, install, or execute a new skill, tool, or piece of code on your own, ever, "
+    "for any reason, even if asked. New abilities can only be added by Arnav editing your code. "
+    "If asked to do something outside your tools, say plainly that you can't and why - never "
+    "improvise code or a workaround to fake it."
 )
 
 
