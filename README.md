@@ -17,7 +17,7 @@ across sessions, and always answers out loud.
 sentence by sentence and are spoken with a Piper neural voice. Voice input can be toggled
 off for a type-only session.
 
-### Tools (34)
+### Tools (38)
 
 | Area | Tools |
 |---|---|
@@ -27,6 +27,7 @@ off for a type-only session.
 | **Calendar** | list upcoming events, add an event (via `.ics`) |
 | **Reminders** | one-off and recurring reminders that speak up on time and survive restarts |
 | **Memory** | remember / recall / forget long-term facts; older context is retrieved automatically |
+| **Learned skills** | teach it a named routine built from its own tools, then trigger it by name (see [Security & scope](#security--scope)) |
 | **Files** | find a file, read & summarise text / PDF / Word / Excel |
 | **PC control** | open apps & websites, media & volume keys, lock / sleep, clipboard read/write, screenshot, system status (battery / CPU / RAM / disk) |
 | **Utilities** | precise calculator, currency conversion (live rates), countdown timer, to-do list |
@@ -129,9 +130,9 @@ Build recipe: [`MASTER.spec`](MASTER.spec).
 
 ## Security & scope
 
-**M.A.S.T.E.R cannot learn, install, or execute a new skill on its own.** Its abilities are
-exactly the 34 tools listed above — a fixed list written into `tools.py` by a developer. This
-isn't just a prompt instruction; it's how the code works:
+**M.A.S.T.E.R cannot create, install, or execute new code or a new tool on its own — ever.**
+Its abilities are exactly the tools listed above, a fixed list written into `tools.py` by a
+developer. This isn't just a prompt instruction; it's how the code works:
 
 - The model can only ever call a function that already exists in `tools.TOOL_FUNCTIONS`. If it
   names anything else, the answer is simply "no tool named X" — nothing runs.
@@ -140,11 +141,15 @@ isn't just a prompt instruction; it's how the code works:
   attribute or dunder access (`__` is rejected outright), and only digits, basic operators, and
   a fixed list of math functions are allowed through.
 - New capabilities can only be added the normal way: a person writes a new tool function and
-  registers it in `tools.py`. The assistant has no mechanism to add, modify, or persist one
-  itself, across a session or between restarts.
+  registers it in `tools.py`. The assistant has no mechanism to add, modify, or persist a new
+  *capability* itself, across a session or between restarts.
 
-The system prompt also tells the model this explicitly, so if asked to do something outside its
-tools, it says so rather than improvising a workaround.
+**The one deliberate exception:** if you explicitly ask it to, M.A.S.T.E.R can learn a **named
+routine built only from its existing tools** — e.g. *"learn a skill called morning briefing:
+tell me the time, check the weather, and read my tasks."* This just saves an instruction that
+gets fed back through the same tool-calling loop as everything else (`learn_skill` /
+`run_skill` / `list_skills` / `forget_skill`). It never adds new code, and the system prompt
+tells the model to only save a skill when the user clearly asks — never on its own initiative.
 
 ---
 

@@ -5,6 +5,7 @@ memory.json
 reminders.json
 contacts.json
 tasks.json
+skills.json
 
 # --- runtime / logs ---
 master_error.log

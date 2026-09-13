@@ -35,6 +35,7 @@ TASKS_FILE = "tasks.json"
 MEMORY_FILE = "memory.json"
 REMINDERS_FILE = "reminders.json"
 CONTACTS_FILE = "contacts.json"
+SKILLS_FILE = "skills.json"
 
 # Master_code.py sets these to its speak() function
 on_timer = None      # for set_timer
@@ -550,6 +551,50 @@ def forget(topic):
     return f"Forgot {removed} item{'s' if removed != 1 else ''}."
 
 
+# ---------- learned skills ----------
+# A "skill" is just a saved instruction that gets fed back through the SAME
+# tool-calling loop as everything else. Learning one never adds new code or a
+# new tool - it only lets the user name a routine built from tools that
+# already exist. Only call learn_skill when the user clearly asks to.
+
+def learn_skill(name, instruction):
+    """Save a named routine, built only from your existing tools, that the user can trigger by name later."""
+    skills = _load_json(SKILLS_FILE, {})
+    skills[name.strip().lower()] = instruction.strip()
+    _save_json(SKILLS_FILE, skills)
+    return f"Learned the skill '{name}'. Say \"do {name}\" any time to run it."
+
+
+def list_skills():
+    """List the skills the user has taught."""
+    skills = _load_json(SKILLS_FILE, {})
+    if not skills:
+        return "No skills learned yet."
+    return "\n".join(f"- {n}: {i}" for n, i in skills.items())
+
+
+def forget_skill(name):
+    """Remove a learned skill."""
+    skills = _load_json(SKILLS_FILE, {})
+    key = name.strip().lower()
+    if key not in skills:
+        return f"No skill called '{name}'."
+    del skills[key]
+    _save_json(SKILLS_FILE, skills)
+    return f"Forgot the skill '{name}'."
+
+
+def run_skill(name):
+    """Run a previously learned skill by name."""
+    skills = _load_json(SKILLS_FILE, {})
+    key = name.strip().lower()
+    instr = skills.get(key) or next((v for k, v in skills.items() if key in k or k in key), None)
+    if not instr:
+        return f"No skill called '{name}'. Use list_skills to see what's learned."
+    return (f"[Learned skill '{name}'] Steps: {instr}\n"
+            "Carry out these steps now using your existing tools, in order, then summarise the result.")
+
+
 # ---------- reminders (survive restarts; a background thread fires them) ----------
 
 _DAY_ABBR = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
@@ -993,6 +1038,22 @@ TOOLS = [
         "name": "forget", "description": "Delete saved facts matching a topic.",
         "parameters": {"type": "object", "properties": {"topic": {"type": "string"}}, "required": ["topic"]}}},
     {"type": "function", "function": {
+        "name": "learn_skill",
+        "description": "Save a named routine built ONLY from your existing tools. Only call this when the user explicitly asks you to learn, save, or remember a skill/routine - never on your own.",
+        "parameters": {"type": "object", "properties": {
+            "name": {"type": "string", "description": "short name for the skill"},
+            "instruction": {"type": "string", "description": "the steps to take, using only your existing tools"}},
+            "required": ["name", "instruction"]}}},
+    {"type": "function", "function": {
+        "name": "run_skill", "description": "Run a previously learned skill by name.",
+        "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}}},
+    {"type": "function", "function": {
+        "name": "list_skills", "description": "List skills the user has taught.",
+        "parameters": {"type": "object", "properties": {}, "required": []}}},
+    {"type": "function", "function": {
+        "name": "forget_skill", "description": "Remove a learned skill by name.",
+        "parameters": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}}},
+    {"type": "function", "function": {
         "name": "set_reminder",
         "description": "One-off reminder at an absolute time; speaks up then, survives restarts. For a relative time, call get_time first.",
         "parameters": {"type": "object", "properties": {
@@ -1076,6 +1137,10 @@ TOOL_FUNCTIONS = {
     "remember": remember,
     "recall": recall,
     "forget": forget,
+    "learn_skill": learn_skill,
+    "run_skill": run_skill,
+    "list_skills": list_skills,
+    "forget_skill": forget_skill,
     "set_reminder": set_reminder,
     "set_recurring_reminder": set_recurring_reminder,
     "list_reminders": list_reminders,
