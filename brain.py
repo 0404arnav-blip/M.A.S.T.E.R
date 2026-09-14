@@ -106,6 +106,17 @@ else:
 
 
 # ---------- model access ----------
+class GroqRateLimit(RuntimeError):
+    """429 - Groq told us to back off. wait_s is from its Retry-After header, if present."""
+    def __init__(self, wait_s=None):
+        super().__init__("Groq rate limited")
+        self.wait_s = wait_s
+
+
+class GroqAuthError(RuntimeError):
+    """401/403 - the API key is missing/invalid. Retrying on a timer won't help."""
+
+
 def groq_stream(msgs, use_tools, on_text=None):
     payload = {"model": GROQ_MODEL,
                "messages": [{"role": "system", "content": SYSTEM_PROMPT}] + msgs,
@@ -114,6 +125,17 @@ def groq_stream(msgs, use_tools, on_text=None):
         payload["tools"] = tools.TOOLS
     r = requests.post(GROQ_URL, headers={"Authorization": f"Bearer {API_KEY}"},
                       json=payload, stream=True, timeout=30)
+    if r.status_code == 429:
+        log(f"(groq 429: {r.text[:200]})")
+        wait_s = None
+        try:
+            wait_s = float(r.headers.get("retry-after"))
+        except (TypeError, ValueError):
+            pass
+        raise GroqRateLimit(wait_s)
+    if r.status_code in (401, 403):
+        log(f"(groq {r.status_code}: {r.text[:200]})")
+        raise GroqAuthError(f"Groq API {r.status_code}")
     if r.status_code != 200:
         log(f"(groq {r.status_code}: {r.text[:200]})")
         raise RuntimeError(f"Groq API {r.status_code}")
@@ -164,21 +186,44 @@ def ollama_chat(msgs, use_tools, on_text=None):
     return message
 
 
-_groq_retry_at = 0.0     # once we fall back, don't retry Groq until this time (epoch secs)
-_GROQ_COOLDOWN = 45      # a Groq rate limit resets per-minute; try again after this long
+_groq_retry_at = 0.0        # once we fall back, don't retry Groq until this time (epoch secs)
+_groq_fail_streak = 0       # consecutive non-rate-limit failures, for backoff
+_groq_fallback_reason = ""  # human-readable reason for the last fallback, for on_status
+
+_GROQ_RATE_LIMIT_DEFAULT = 45   # used only if Groq's 429 has no Retry-After header
+_GROQ_BACKOFF_BASE = 30         # first backoff after a generic failure (outage/network)
+_GROQ_BACKOFF_MAX = 600         # cap backoff at 10 min so a long outage isn't hammered
+_GROQ_AUTH_COOLDOWN = 900       # a bad key won't fix itself - check back rarely
 
 
 def ask_model(msgs, use_tools, on_text=None):
-    global backend, _groq_retry_at
+    global backend, _groq_retry_at, _groq_fail_streak, _groq_fallback_reason
     if backend == "ollama" and API_KEY and time.time() >= _groq_retry_at:
         backend = "groq"                     # cooldown elapsed - give Groq another chance
     if backend == "groq":
         try:
-            return groq_stream(msgs, use_tools, on_text=on_text)
-        except (requests.exceptions.RequestException, RuntimeError) as e:
-            log(f"(groq unavailable: {e} - trying local model)")
+            message = groq_stream(msgs, use_tools, on_text=on_text)
+            _groq_fail_streak = 0             # success - clear any backoff growth
+            return message
+        except GroqRateLimit as e:
+            wait = e.wait_s if e.wait_s and e.wait_s > 0 else _GROQ_RATE_LIMIT_DEFAULT
+            wait = min(wait, _GROQ_BACKOFF_MAX)
+            log(f"(groq rate limited - retrying in {wait:.0f}s)")
+            _groq_fallback_reason = "cloud limit reached - using the local model, this is slower…"
             backend = "ollama"
-            _groq_retry_at = time.time() + _GROQ_COOLDOWN
+            _groq_retry_at = time.time() + wait
+        except GroqAuthError as e:
+            log(f"(groq auth error: {e} - not retrying for a while)")
+            _groq_fallback_reason = "the cloud model's API key looks invalid - using the local model"
+            backend = "ollama"
+            _groq_retry_at = time.time() + _GROQ_AUTH_COOLDOWN
+        except (requests.exceptions.RequestException, RuntimeError) as e:
+            _groq_fail_streak += 1
+            wait = min(_GROQ_BACKOFF_BASE * (2 ** (_groq_fail_streak - 1)), _GROQ_BACKOFF_MAX)
+            log(f"(groq unavailable: {e} - retrying in {wait:.0f}s, streak={_groq_fail_streak})")
+            _groq_fallback_reason = "cloud model unreachable - using the local model, this is slower…"
+            backend = "ollama"
+            _groq_retry_at = time.time() + wait
     return ollama_chat(msgs, use_tools, on_text=on_text)
 
 
@@ -240,7 +285,7 @@ def respond(user_text, on_text=None, on_status=None):
             was = backend
             message = ask_model(work, use_tools=(rounds < MAX_TOOL_ROUNDS), on_text=on_text)
             if backend != was and backend == "ollama" and on_status:
-                on_status("cloud limit reached - using the local model, this is slower…")
+                on_status(_groq_fallback_reason or "cloud limit reached - using the local model, this is slower…")
             work.append(message)
 
             tool_calls = message.get("tool_calls")
