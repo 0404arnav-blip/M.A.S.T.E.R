@@ -88,6 +88,19 @@ def speak(text):
         _speak_q.put(text.strip())
 
 
+def stop_speaking():
+    """Interrupt M.A.S.T.E.R mid-sentence: drop anything still queued to be
+    said and silence whatever's playing right now (a barge-in)."""
+    try:
+        while True:
+            _speak_q.get_nowait()
+            _speak_q.task_done()
+    except queue.Empty:
+        pass
+    winsound.PlaySound(None, winsound.SND_PURGE)   # stop the sound currently playing
+    speaking.clear()
+
+
 tools.on_timer = speak       # timers announce themselves
 tools.announce = speak       # background reminders speak up
 brain.start_reminder_loop()
@@ -169,6 +182,25 @@ def listen(cue=True):
 
     if voiced < MIN_VOICED_BLOCKS:
         return None
+    return np.concatenate(frames) if frames else None
+
+
+_ptt_engaged = threading.Event()   # set while the push-to-talk key is held down
+
+
+def listen_ptt(released):
+    """Record raw mic audio for as long as the push-to-talk key is held (until
+    `released` is set). No silence/VAD trimming - the key itself marks start
+    and end, which is what makes this safe to use while M.A.S.T.E.R is
+    talking: unlike listen(), it doesn't wait to see if you're louder than it."""
+    frames = []
+    max_blocks = int(MAX_PHRASE_SEC * SAMPLE_RATE / BLOCK)
+    while not released.is_set() and len(frames) < max_blocks:
+        try:
+            block = _audio_q.get(timeout=0.1)
+        except queue.Empty:
+            continue
+        frames.append(np.frombuffer(block, dtype=np.int16))
     return np.concatenate(frames) if frames else None
 
 
@@ -267,14 +299,14 @@ def _voice_loop():
         return
     while True:
         _voice_on.wait()               # blocks here whenever voice input is turned off
-        while speaking.is_set():        # don't listen while M.A.S.T.E.R is talking
-            time.sleep(0.1)
+        while speaking.is_set() or _ptt_engaged.is_set():
+            time.sleep(0.1)             # don't listen while M.A.S.T.E.R is talking, or push-to-talk owns the mic
         time.sleep(0.35)               # let the speaker echo die down
         audio = listen(cue=True)
         if audio is None:
             continue
-        if not _voice_on.is_set() or speaking.is_set():   # dropped: toggled off, or that was our own voice
-            continue
+        if not _voice_on.is_set() or speaking.is_set() or _ptt_engaged.is_set():
+            continue   # dropped: toggled off, that was our own voice, or push-to-talk took over
         text = normalize(transcribe(audio))
         log(f"heard: {text!r}")
         if len(text) < 3 or text in JUNK:
@@ -333,6 +365,10 @@ def run():
         cb.configure(state="disabled")
     cb.grid(row=0, column=0, sticky="w", padx=10, pady=(8, 4))
 
+    if _mic is not None:
+        tk.Label(win, text="hold F9 to talk, even while it's speaking", fg="#5c6584",
+                bg="#0b1020", font=("Segoe UI", 8)).grid(row=0, column=0, sticky="e", padx=10)
+
     entry = tk.Entry(win, font=("Segoe UI", 11))
     entry.grid(row=2, column=0, sticky="ew", padx=8, pady=8)
     entry.focus_set()
@@ -341,9 +377,49 @@ def run():
         text = entry.get()
         entry.delete(0, "end")
         if text.strip():
+            if speaking.is_set():
+                stop_speaking()          # typing always interrupts - it's unambiguous, no echo risk
             threading.Thread(target=handle, args=(text,), daemon=True).start()
 
     entry.bind("<Return>", on_type)
+
+    # ---- push-to-talk: hold F9 to speak over it, even mid-sentence ----
+    _ptt_release = {"event": None}
+
+    def on_ptt_press(_evt=None):
+        if _mic is None or _ptt_engaged.is_set():
+            return
+        _ptt_engaged.set()
+        if speaking.is_set():
+            stop_speaking()              # gated by the key, not always-on - safe to barge in
+        _drain()                         # discard whatever the mic already buffered (e.g. its own tail end)
+        if CUES:
+            winsound.Beep(1200, 120)
+        released = threading.Event()
+        _ptt_release["event"] = released
+
+        def _record():
+            audio = listen_ptt(released)
+            _ptt_engaged.clear()
+            if audio is None:
+                return
+            text = normalize(transcribe(audio))
+            log(f"ptt heard: {text!r}")
+            if len(text) < 3 or text in JUNK:
+                return
+            if CUES:
+                winsound.Beep(600, 100)
+            handle(text)
+
+        threading.Thread(target=_record, daemon=True).start()
+
+    def on_ptt_release(_evt=None):
+        ev = _ptt_release["event"]
+        if ev:
+            ev.set()
+
+    win.bind("<KeyPress-F9>", on_ptt_press)
+    win.bind("<KeyRelease-F9>", on_ptt_release)
 
     _ui["append"] = append
     _ui["quit"] = lambda: win.after(0, lambda: os._exit(0))
@@ -357,7 +433,8 @@ def run():
                "'Microphone access' and 'Let desktop apps access your microphone', then restart me.)\n\n")
     else:
         append("M.A.S.T.E.R: Ready. Talk any time, or untick 'Voice input' and just type. "
-               "I always reply out loud.\n\n")
+               "Hold F9 to talk over me if I'm mid-sentence, or just start typing - either one "
+               "interrupts me. I always reply out loud.\n\n")
     win.mainloop()
 
 
