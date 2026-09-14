@@ -116,14 +116,35 @@ def _mic_callback(indata, frames, time_info, status):
 
 
 _mic = None
-try:
-    _mic = sd.RawInputStream(samplerate=SAMPLE_RATE, blocksize=BLOCK, dtype="int16",
-                             channels=1, callback=_mic_callback)
-    _mic.start()
-except Exception as e:
-    mic_error = str(e)
-    with open(brain.LOG_FILE, "a", encoding="utf-8") as _f:
-        _f.write(f"\nmic unavailable, running type-only: {e}\n")
+_mic_ready = threading.Event()   # opening the audio device takes a couple seconds - do it
+                                  # in the background so it doesn't delay the window showing up
+_mic_start_started = threading.Event()
+_on_mic_ready = None             # optional callback, set by run(), to refresh the UI once known
+
+
+def _open_mic():
+    global _mic, mic_error
+    try:
+        m = sd.RawInputStream(samplerate=SAMPLE_RATE, blocksize=BLOCK, dtype="int16",
+                              channels=1, callback=_mic_callback)
+        m.start()
+        _mic = m
+    except Exception as e:
+        mic_error = str(e)
+        with open(brain.LOG_FILE, "a", encoding="utf-8") as _f:
+            _f.write(f"\nmic unavailable, running type-only: {e}\n")
+    _mic_ready.set()
+    if _on_mic_ready:
+        _on_mic_ready()
+
+
+def start_mic():
+    """Kick off opening the microphone in the background, if it hasn't started already
+    (safe to call more than once). Called once the window is already showing, not at
+    import time, so it doesn't compete with drawing the window for the CPU/GIL."""
+    if not _mic_start_started.is_set():
+        _mic_start_started.set()
+        threading.Thread(target=_open_mic, daemon=True).start()
 
 
 def _drain():
@@ -295,6 +316,8 @@ def handle(text):
 
 def _voice_loop():
     """Microphone -> transcribe -> handle(), forever (paused while voice input is off)."""
+    start_mic()                         # in case nothing has kicked it off yet
+    _mic_ready.wait()                   # wait for the background mic-open attempt to settle
     if _mic is None:                    # mic couldn't be opened - stay type-only
         return
     while True:
@@ -344,7 +367,10 @@ def run():
             transcript.configure(state="disabled")
         win.after(0, _do)
 
-    voice_var = tk.BooleanVar(value=(_mic is not None))
+    # The mic finishes opening in the background (see _open_mic) - assume it'll work
+    # (the common case) so the window doesn't have to wait; _mic_settled() below
+    # corrects the checkbox/hint if it turns out there's no mic after all.
+    voice_var = tk.BooleanVar(value=True)
 
     def toggle_voice():
         if _mic is None:
@@ -361,13 +387,11 @@ def run():
     cb = tk.Checkbutton(win, text="Voice input", variable=voice_var, command=toggle_voice,
                         bg="#0b1020", fg="#e8ecf5", selectcolor="#10162a",
                         activebackground="#0b1020", activeforeground="#e8ecf5")
-    if _mic is None:
-        cb.configure(state="disabled")
     cb.grid(row=0, column=0, sticky="w", padx=10, pady=(8, 4))
 
-    if _mic is not None:
-        tk.Label(win, text="hold F9 to talk, even while it's speaking", fg="#5c6584",
-                bg="#0b1020", font=("Segoe UI", 8)).grid(row=0, column=0, sticky="e", padx=10)
+    ptt_hint = tk.Label(win, text="hold F9 to talk, even while it's speaking", fg="#5c6584",
+                        bg="#0b1020", font=("Segoe UI", 8))
+    ptt_hint.grid(row=0, column=0, sticky="e", padx=10)
 
     entry = tk.Entry(win, font=("Segoe UI", 11))
     entry.grid(row=2, column=0, sticky="ew", padx=8, pady=8)
@@ -425,16 +449,42 @@ def run():
     _ui["quit"] = lambda: win.after(0, lambda: os._exit(0))
     win.protocol("WM_DELETE_WINDOW", lambda: os._exit(0))
 
-    threading.Thread(target=_voice_loop, daemon=True).start()
-    if _mic is None:
-        append("M.A.S.T.E.R: Microphone unavailable, so I'm in type-only mode. "
-               "Type below and I'll reply out loud.\n"
-               "(Fix: Windows Settings > Privacy & security > Microphone > turn on "
-               "'Microphone access' and 'Let desktop apps access your microphone', then restart me.)\n\n")
-    else:
-        append("M.A.S.T.E.R: Ready. Talk any time, or untick 'Voice input' and just type. "
-               "Hold F9 to talk over me if I'm mid-sentence, or just start typing - either one "
-               "interrupts me. I always reply out loud.\n\n")
+    # Fix up the checkbox/hint if the background mic-open attempt (started at import
+    # time, see _open_mic) turns out to have failed - guarded so it only ever fires once,
+    # whether it lands before or after this point.
+    _settled = {"done": False}
+
+    def _mic_settled():
+        if _settled["done"]:
+            return
+        _settled["done"] = True
+        if _mic is None:
+            def _do():
+                voice_var.set(False)
+                cb.configure(state="disabled")
+                ptt_hint.grid_remove()
+                append("(microphone unavailable - staying in type-only mode. Fix: Windows "
+                       "Settings > Privacy & security > Microphone > turn on 'Microphone "
+                       "access' and 'Let desktop apps access your microphone', then restart me.)\n\n")
+            win.after(0, _do)
+
+    global _on_mic_ready
+    _on_mic_ready = _mic_settled
+    if _mic_ready.is_set():          # background open already finished before we got here
+        _mic_settled()
+
+    def _start_background_loading():
+        # Kicked off a beat after the window is already showing, not before -
+        # both of these are CPU-heavy enough to briefly starve the main thread of
+        # the GIL, so starting them only once the window has had a chance to paint
+        # keeps that contention from delaying the window itself.
+        tts.start_loading()
+        threading.Thread(target=_voice_loop, daemon=True).start()
+
+    win.after(50, _start_background_loading)
+    append("M.A.S.T.E.R: Ready. Talk any time, or untick 'Voice input' and just type. "
+           "Hold F9 to talk over me if I'm mid-sentence, or just start typing - either one "
+           "interrupts me. I always reply out loud.\n\n")
     win.mainloop()
 
 
