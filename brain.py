@@ -43,7 +43,8 @@ OLLAMA_MODEL = "qwen2.5:3b"
 HISTORY_FILE = "history.json"
 CONFIG_FILE = "config.json"
 CONTEXT_TURNS = 12
-MAX_TOOL_ROUNDS = 4
+MAX_TOOL_ROUNDS = 2      # cap on tool-calling rounds per reply (Groq's free tier is rate-
+                         # limited per minute, and each round is a separate API call)
 
 SYSTEM_PROMPT = (
     "You are M.A.S.T.E.R - Multi Assistant Software for Technical and Ethical Research - "
