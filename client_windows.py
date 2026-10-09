@@ -5,9 +5,9 @@ import io
 import os
 import re
 import time
+import wave
 import queue
 import threading
-import tempfile
 
 import numpy as np
 import sounddevice as sd
@@ -53,8 +53,22 @@ def normalize(text):
 # ---------- speech out (Piper via tts.py) ----------
 # Playback runs on its own thread so speak() NEVER blocks the assistant.
 _speak_q = queue.Queue()
-_speak_n = 0
 speaking = threading.Event()          # set while M.A.S.T.E.R is talking (mic ignores input then)
+
+
+def _play(data):
+    """Play WAV bytes through the speakers and return when done - or when stop_speaking()
+    cuts it off. Goes through sounddevice, straight from memory: no temp file (nothing
+    of what was said is left on the PC, nothing written to a USB stick), and unlike
+    winsound it can really be stopped mid-sentence (winsound's stop call just waits
+    for the sound it is meant to stop)."""
+    with wave.open(io.BytesIO(data)) as w:
+        rate, channels = w.getframerate(), w.getnchannels()
+        pcm = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
+    if channels > 1:
+        pcm = pcm.reshape(-1, channels)
+    sd.play(pcm, rate)
+    sd.wait()
 
 
 def _speaker_worker():
@@ -64,12 +78,7 @@ def _speaker_worker():
         try:
             data = tts.synth_wav(text)
             if data:
-                global _speak_n
-                _speak_n = (_speak_n + 1) % 4          # rotate temp files to avoid races
-                tmp = os.path.join(tempfile.gettempdir(), f"master_tts_{_speak_n}.wav")
-                with open(tmp, "wb") as f:
-                    f.write(data)
-                winsound.PlaySound(tmp, winsound.SND_FILENAME)
+                _play(data)
         except Exception as e:
             log(f"(voice error: {e})")
         finally:
@@ -97,7 +106,7 @@ def stop_speaking():
             _speak_q.task_done()
     except queue.Empty:
         pass
-    winsound.PlaySound(None, winsound.SND_PURGE)   # stop the sound currently playing
+    sd.stop()                          # cut off whatever is playing right now
     speaking.clear()
 
 

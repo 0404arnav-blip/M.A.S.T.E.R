@@ -43,6 +43,8 @@ off for a type-only session.
   you instead of going silent.
 - **Doesn't hear itself** — the microphone is paused while it's speaking, so it can't pick up
   its own voice through the speakers and reply to itself.
+- **Interrupt it** — start typing, or hold **F9** and talk, and it stops mid-sentence and listens.
+  (Voice barge-in is push-to-talk on purpose: an always-open mic would hear its own voice.)
 - **History is capped** at 600 messages so it never grows without bound.
 
 ---
@@ -57,6 +59,10 @@ off for a type-only session.
    *(Skip this if you'll use a Groq key instead.)*
 3. Double-click **`MASTER.exe`**. On first launch, pick **On this PC** or paste a free
    **[Groq key](https://console.groq.com/keys)** for faster replies.
+
+> **No key is included in the download.** Everyone brings their own: a Groq key takes a minute
+> to get and is free (it is stored only in your copy's `config.json`). Groq's free tier allows
+> about 8,000 tokens a minute per account, so if you hit the limit it waits and retries.
 
 Settings, history, memory and reminders are all saved inside the app's own folder.
 
@@ -99,6 +105,32 @@ Build recipe: [`MASTER.spec`](MASTER.spec).
 
 ---
 
+## USB stick edition (plug in and go)
+
+`make_usb.py` turns a pendrive into a ready-to-use M.A.S.T.E.R: nothing to install on the PC,
+and everything it saves (settings, chats, memory, reminders, documents) stays on the stick.
+
+```bash
+build.bat                                # once, to build dist\MASTER
+venv\Scripts\python make_usb.py E:       # a ready-to-go stick (your key from config.json)
+venv\Scripts\python make_usb.py E: --no-key   # the person asks for their OWN key on first start
+```
+
+Run it again on a stick that is already in use to update the program; the person's own data and
+settings are left alone. A stick holds a key in plain text, so treat it like a password, and
+give each person a key from their own Groq account (limits are per account). It refuses to write
+to a hard drive or to the project folder. The key goes onto sticks only - never into this
+repository or the published download.
+
+## On your phone
+
+[`mobile/`](mobile) is an installable web app (PWA) for Android and iPhone: talk or type, replies are
+spoken, and it has 26 of the tools (not the PC-only ones). It is published to GitHub Pages by the workflow in `.github/workflows` (turn it on once under
+*Settings, Pages, Source: GitHub Actions*); open that address on your phone and add it to the
+home screen. It also builds into a single `MASTER-phone.html` that an
+Android phone can open straight from a pendrive and that saves nothing on the phone. See
+[`mobile/README.md`](mobile/README.md).
+
 ## Usage examples
 
 - "What's the weather in Mumbai?"
@@ -125,6 +157,8 @@ Build recipe: [`MASTER.spec`](MASTER.spec).
 | `tools.py` | every tool and its schema |
 | `tts.py` | text-to-speech (Piper) |
 | `stt.py` | speech-to-text (Groq Whisper) |
+| `make_usb.py` | builds the pendrive edition |
+| `mobile/` | the phone web app and its tests |
 
 ---
 

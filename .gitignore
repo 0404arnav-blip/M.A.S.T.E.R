@@ -31,3 +31,11 @@ _*.txt
 build/
 dist/
 *.zip
+
+# --- USB-stick edition: generated per stick, may contain a key - never commit ---
+MASTER-Phone/
+*-phone.html
+portable.txt
+Documents/
+temp/
+live_console*.log

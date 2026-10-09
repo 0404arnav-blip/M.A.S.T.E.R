@@ -19,6 +19,7 @@ import subprocess
 import webbrowser
 from datetime import datetime, timedelta
 
+import apppath          # sets the working dir (source, .exe, or a USB stick)
 import requests
 from ddgs import DDGS
 import win32com.client
@@ -205,8 +206,25 @@ def open_app(name):
 
 # ---------- office documents ----------
 
+# Portable mode: if a file called portable.txt sits next to the program (as it does on
+# the USB-stick copy), everything it creates stays in its own folder instead of the PC's
+# Documents / temp folders - so unplugging the stick takes it all with it.
+PORTABLE = os.path.exists(os.path.join(apppath.BASE, "portable.txt"))
+
+
+def _scratch_dir():
+    if not PORTABLE:
+        return tempfile.gettempdir()
+    d = os.path.join(apppath.BASE, "temp")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
 def _docs_dir():
-    d = os.path.join(os.path.expanduser("~"), "Documents", "Master")
+    if PORTABLE:
+        d = os.path.join(apppath.BASE, "Documents")
+    else:
+        d = os.path.join(os.path.expanduser("~"), "Documents", "Master")
     os.makedirs(d, exist_ok=True)
     return d
 
@@ -264,7 +282,7 @@ def _fetch_image(query):
             if im.width < 200 or im.height < 150:
                 continue
             im.thumbnail((1400, 1400))
-            path = os.path.join(tempfile.gettempdir(), f"master_img_{abs(hash(url)) % 10**8}.png")
+            path = os.path.join(_scratch_dir(), f"master_img_{abs(hash(url)) % 10**8}.png")
             im.save(path, "PNG")
             return path
         except Exception:

@@ -1,0 +1,16 @@
+{
+  "name": "M.A.S.T.E.R",
+  "short_name": "MASTER",
+  "description": "Multi Assistant Software for Technical and Ethical Research - a personal voice assistant, built by Arnav.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1020",
+  "theme_color": "#0b1020",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
