@@ -9,6 +9,7 @@ import {
 } from '../tools.js';
 import {
   parseMarkup, buildDocRequests, parseTable, findFile, listFiles, connect, SETUP_HELP,
+  parseSlides, buildSlideRequests,
   _test as gtest, GoogleError,
 } from '../google.js';
 
@@ -64,7 +65,7 @@ export async function googleTests({ head, check, eq, throws }) {
     const calls = [];
     window.fetch = async (url, opts = {}) => {
       const u = String(url);
-      if (!/googleapis\.com|api\.groq\.com/.test(u)) return realFetch(url, opts);
+      if (!/googleapis\.com|api\.groq\.com|commons\.wikimedia\.org/.test(u)) return realFetch(url, opts);
       const call = { url: u, method: opts.method || 'GET', headers: opts.headers || {}, body: form(opts.body) };
       calls.push(call);
       for (const [match, handler] of routes) {
@@ -138,7 +139,7 @@ export async function googleTests({ head, check, eq, throws }) {
   check('system prompt has no Google line', !/google\.com\/device/.test(systemPrompt()));
   unmock();
   ui = resetGoogle(true);
-  eq('once set up, the five Google tools are offered', activeTools().length, ALL_TOOLS.length);
+  eq('once set up, the Google tools are offered', activeTools().length, ALL_TOOLS.length);
   check('and the prompt explains the approval step', /google\.com\/device/.test(systemPrompt()));
 
   // ===================================================================
@@ -333,6 +334,156 @@ export async function googleTests({ head, check, eq, throws }) {
   const leaks = calls.filter((c) => JSON.stringify(c.body || '').includes('GOCSPX-test-secret') || JSON.stringify(c.headers).includes('GOCSPX-test-secret'));
   check('client secret only ever goes to Google\'s token endpoint', leaks.every((c) => c.url === 'https://oauth2.googleapis.com/token') && leaks.length >= 1, leaks.map((c) => c.url).join(','));
   check('and no request goes anywhere but Google', calls.every((c) => /^https:\/\/(oauth2|docs|sheets)\.googleapis\.com\//.test(c.url)), calls.map((c) => c.url).join(','));
+  unmock();
+
+  // ===================================================================
+  head('google slides: slide text parsing');
+  const deckText = '# Intro\n- Why it matters\n- **Big** idea\n\nSlide 2: Timeline\n- 1789: Storming of the Bastille\n2. Next point\nimage: Bastille painting\n\nThe End';
+  eq('slides parsed (title line, bullets, image line)', parseSlides(deckText), [
+    { title: 'Intro', bullets: ['Why it matters', 'Big idea'], image: '' },
+    { title: 'Timeline', bullets: ['1789: Storming of the Bastille', 'Next point'], image: 'Bastille painting' },
+    { title: 'The End', bullets: [], image: '' },
+  ]);
+  eq('capped at 40 slides', parseSlides(Array.from({ length: 60 }, (_, i) => `S${i}\n- x`).join('\n\n')).length, 40);
+  eq('blank input -> no slides', parseSlides('  \n\n  '), []);
+
+  head('google slides: the requests, checked against a model of a deck');
+  const layouts = new Map([
+    ['TITLE_AND_BODY', { id: 'LAY_BODY', ph: [{ type: 'TITLE', index: 0 }, { type: 'BODY', index: 0 }] }],
+    ['TITLE_AND_TWO_COLUMNS', { id: 'LAY_2COL', ph: [{ type: 'TITLE', index: 0 }, { type: 'BODY', index: 0 }, { type: 'BODY', index: 1 }] }],
+    ['TITLE_ONLY', { id: 'LAY_TITLE', ph: [{ type: 'TITLE', index: 0 }] }],
+  ]);
+  const W = 9144000;
+  const H = 5143500;
+  const parsedDeck = parseSlides(deckText);
+  const img = { url: 'https://upload.wikimedia.org/x/Bastille.jpg', w: 900, h: 600 };
+  const reqs = buildSlideRequests(parsedDeck, {
+    layouts, W, H, nonce: 'abc123', images: [null, img, null],
+    titleSlide: { pageId: 'p1', titleId: 'tt', subtitleId: 'st' }, deckTitle: 'French Revolution', dateText: '12 October 2026',
+  });
+  const kind = (r) => Object.keys(r)[0];
+  const known = new Set(['p1', 'tt', 'st']);
+  const order = [];
+  for (const r of reqs) {
+    if (r.createSlide) {
+      known.add(r.createSlide.objectId);
+      for (const m of r.createSlide.placeholderIdMappings) known.add(m.objectId);
+    }
+    if (r.createImage || r.createShape) known.add((r.createImage || r.createShape).objectId);
+    const target = r.insertText?.objectId || r.updateTextStyle?.objectId || r.deleteObject?.objectId;
+    if (target && !known.has(target)) order.push(`${kind(r)} uses ${target} before it exists`);
+  }
+  eq('every request targets an object that already exists', order, []);
+  const createdIds = reqs.flatMap((r) => (r.createSlide ? [r.createSlide.objectId, ...r.createSlide.placeholderIdMappings.map((m) => m.objectId)] : r.createImage ? [r.createImage.objectId] : r.createShape ? [r.createShape.objectId] : []));
+  eq('object ids are unique', new Set(createdIds).size, createdIds.length);
+  check('object ids obey Google\'s rule (5-50 chars, letters/digits/_-:)', createdIds.every((id) => /^[a-zA-Z0-9_][a-zA-Z0-9_\-:]{4,49}$/.test(id)), createdIds.join(','));
+  eq('title slide gets the deck title and the date', [reqs[0].insertText, reqs.find((r) => r.insertText?.objectId === 'st').insertText.text],
+    [{ objectId: 'tt', insertionIndex: 0, text: 'French Revolution' }, '12 October 2026']);
+  const made = reqs.filter((r) => r.createSlide).map((r) => r.createSlide.slideLayoutReference.layoutId);
+  eq('layout per slide: bullets / picture / title only', made, ['LAY_BODY', 'LAY_2COL', 'LAY_TITLE']);
+  const bodyText = (sid) => reqs.find((r) => r.insertText?.objectId === sid)?.insertText.text;
+  eq('bullets go into the body placeholder, one per line', bodyText(`mabc123s0b`), 'Why it matters\nBig idea');
+  eq('picture slide: left column has the bullets', bodyText('mabc123s1b'), '1789: Storming of the Bastille\nNext point');
+  check('picture slide: the unused right column is removed', reqs.some((r) => r.deleteObject?.objectId === 'mabc123s1r'));
+  eq('title-only slide has no body text', bodyText('mabc123s2b'), undefined);
+  const ci = reqs.find((r) => r.createImage).createImage;
+  const t = ci.elementProperties.transform;
+  const sz = ci.elementProperties.size;
+  check('picture sits inside the page', t.translateX >= 0 && t.translateY >= 0 && t.translateX + sz.width.magnitude <= W && t.translateY + sz.height.magnitude <= H, JSON.stringify([t, sz]));
+  check('picture keeps its shape (3:2)', Math.abs(sz.width.magnitude / sz.height.magnitude - 1.5) < 0.01, `${sz.width.magnitude}/${sz.height.magnitude}`);
+  eq('the picture link is the public one', ci.url, img.url);
+  check('picture is credited to Wikimedia Commons', reqs.some((r) => r.insertText?.text === 'Image: Wikimedia Commons'));
+  const noImg = buildSlideRequests(parsedDeck, { layouts, W, H, nonce: 'abc123', images: [] });
+  eq('without pictures: no image/credit requests, picture slide uses the plain body layout',
+    [noImg.some((r) => r.createImage || r.createShape), noImg.filter((r) => r.createSlide).map((r) => r.createSlide.slideLayoutReference.layoutId)],
+    [false, ['LAY_BODY', 'LAY_BODY', 'LAY_TITLE']]);
+  const fallback = buildSlideRequests(parsedDeck, { layouts: null, W, H, nonce: 'abc123' });
+  eq('layouts unknown: falls back to Google\'s named layouts', fallback.filter((r) => r.createSlide).map((r) => r.createSlide.slideLayoutReference.predefinedLayout), ['TITLE_AND_BODY', 'TITLE_AND_BODY', 'TITLE_ONLY']);
+
+  head('google slides: create, retry without pictures, add more');
+  const presReply = {
+    presentationId: 'PR1',
+    pageSize: { width: { magnitude: W, unit: 'EMU' }, height: { magnitude: H, unit: 'EMU' } },
+    slides: [{ objectId: 'p1', pageElements: [
+      { objectId: 'tt', shape: { placeholder: { type: 'CENTERED_TITLE', index: 0 } } },
+      { objectId: 'st', shape: { placeholder: { type: 'SUBTITLE', index: 0 } } }] }],
+    layouts: [
+      { objectId: 'LAY_BODY', layoutProperties: { name: 'TITLE_AND_BODY' }, pageElements: [{ shape: { placeholder: { type: 'TITLE', index: 0 } } }, { shape: { placeholder: { type: 'BODY', index: 0 } } }] },
+      { objectId: 'LAY_2COL', layoutProperties: { name: 'TITLE_AND_TWO_COLUMNS' }, pageElements: [{ shape: { placeholder: { type: 'TITLE', index: 0 } } }, { shape: { placeholder: { type: 'BODY', index: 0 } } }, { shape: { placeholder: { type: 'BODY', index: 1 } } }] },
+      { objectId: 'LAY_TITLE', layoutProperties: { name: 'TITLE_ONLY' }, pageElements: [{ shape: { placeholder: { type: 'TITLE', index: 0 } } }] }],
+  };
+  const commons = () => json({ query: { pages: {
+    2: { index: 2, title: 'File:B.svg', imageinfo: [{ thumburl: 'https://upload.wikimedia.org/b/900px-B.svg.pdf', thumbwidth: 900, thumbheight: 600, mime: 'application/pdf' }] },
+    1: { index: 1, title: 'File:A.jpg', imageinfo: [{ thumburl: 'https://upload.wikimedia.org/a/900px-A.jpg', thumbwidth: 900, thumbheight: 600, mime: 'image/jpeg' }] } } } });
+  const signedIn = () => { ui = resetGoogle(true); store.set('google', { refresh: 'RT' }); return ui; };
+
+  ui = signedIn();
+  calls = mockGoogle([
+    ['/token', () => json({ access_token: 'AT', expires_in: 3599 })],
+    [(c) => c.url.endsWith('/v1/presentations') && c.method === 'POST', () => json(presReply)],
+    ['commons.wikimedia.org', commons],
+    ['PR1:batchUpdate', () => json({ replies: [] })],
+  ]);
+  let out = await TOOL_FUNCTIONS.create_google_slides({ title: 'French Revolution', slides: deckText }, {});
+  check('deck created (3 slides + the title slide)', /Created the Google Slides deck "French Revolution" with 4 slides/.test(out), out);
+  eq('deck created with just a title first', calls.find((c) => c.url.endsWith('/v1/presentations')).body, { title: 'French Revolution' });
+  check('picture looked up by its description', /gsrsearch=Bastille%20painting/.test(calls.find((c) => c.url.includes('commons.wikimedia')).url));
+  const sent = calls.find((c) => c.url.endsWith('PR1:batchUpdate')).body.requests;
+  eq('one batch carries the picture (a .jpg thumbnail was chosen, the pdf one skipped)', sent.find((r) => r.createImage)?.createImage.url, 'https://upload.wikimedia.org/a/900px-A.jpg');
+  eq('open button points at the deck', [ui.chips.at(-1).label, ui.chips.at(-1).href], ['Open in Google Slides', 'https://docs.google.com/presentation/d/PR1/edit']);
+  eq('remembered as a slides deck', listFiles()[0].type, 'slides');
+  unmock();
+
+  ui = signedIn();
+  let tries = 0;
+  calls = mockGoogle([
+    ['/token', () => json({ access_token: 'AT', expires_in: 3599 })],
+    [(c) => c.url.endsWith('/v1/presentations') && c.method === 'POST', () => json(presReply)],
+    ['commons.wikimedia.org', commons],
+    ['PR1:batchUpdate', () => (++tries === 1 ? json({ error: { message: 'Invalid requests[7].createImage: There was a problem retrieving the image. The provided image is in an unsupported format.' } }, 400) : json({}))],
+  ]);
+  out = await TOOL_FUNCTIONS.create_google_slides({ title: 'Retry deck', slides: deckText }, {});
+  check('Google could not fetch a picture -> deck still made, without pictures', /Created the Google Slides deck "Retry deck"/.test(out), out);
+  const batches = calls.filter((c) => c.url.endsWith('PR1:batchUpdate'));
+  eq('second attempt has no picture requests', [batches.length, batches[1].body.requests.some((r) => r.createImage || r.createShape)], [2, false]);
+  unmock();
+
+  ui = signedIn();
+  calls = mockGoogle([
+    ['/token', () => json({ access_token: 'AT', expires_in: 3599 })],
+    [(c) => c.url.endsWith('/v1/presentations') && c.method === 'POST', () => json({ presentationId: 'PR1' })],
+    ['/v1/presentations/PR1?fields=', () => json(presReply)],
+    ['PR1:batchUpdate', () => json({})],
+  ]);
+  out = await TOOL_FUNCTIONS.create_google_slides({ title: 'Short reply', slides: 'One\n- a' }, {});
+  check('short create reply -> asks Google for the layouts it needs', /Created the Google Slides deck/.test(out) && calls.some((c) => c.method === 'GET' && /layouts/.test(decodeURIComponent(c.url))), out);
+  unmock();
+
+  ui = signedIn();
+  store.set('gfiles', [{ id: 'PR1', type: 'slides', title: 'French Revolution', url: 'https://docs.google.com/presentation/d/PR1/edit' },
+    { id: 'DOCX', type: 'doc', title: 'Trip plan', url: 'u' }]);
+  calls = mockGoogle([
+    ['/token', () => json({ access_token: 'AT', expires_in: 3599 })],
+    ['/v1/presentations/PR1?fields=', () => json(presReply)],
+    ['PR1:batchUpdate', () => json({})],
+  ]);
+  out = await TOOL_FUNCTIONS.add_to_google_slides({ which: 'revolution', slides: 'Causes\n- Taxes\n- Bread prices\n\nResults\n- A republic' }, {});
+  check('added two slides to the deck found by title words', /Added 2 slides to the Google Slides deck "French Revolution"/.test(out), out);
+  const slidesAppended = calls.find((c) => c.url.endsWith('PR1:batchUpdate')).body.requests;
+  eq('appends at the end (no position given) and does not touch the title slide', [slidesAppended.filter((r) => r.createSlide).every((r) => r.createSlide.insertionIndex === undefined), slidesAppended.some((r) => r.insertText?.objectId === 'tt')], [true, false]);
+  check('asking for a deck it never made is explained', /haven't made a Google Slides deck matching 'zebra'/.test(await TOOL_FUNCTIONS.add_to_google_slides({ which: 'zebra', slides: 'x\n- y' }, {})));
+  eq('the list names each kind', (await TOOL_FUNCTIONS.list_google_files()).split('\n'), ['1. Slides deck: French Revolution', '2. Doc: Trip plan']);
+  unmock();
+
+  ui = signedIn();
+  mockGoogle([
+    ['/token', () => json({ access_token: 'AT', expires_in: 3599 })],
+    [(c) => c.url.endsWith('/v1/presentations') && c.method === 'POST', () => json({
+      error: { code: 403, message: 'Google Slides API has not been used in project 123 before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/slides.googleapis.com/overview?project=123 then retry.', status: 'PERMISSION_DENIED' },
+    }, 403)],
+  ]);
+  out = await TOOL_FUNCTIONS.create_google_slides({ title: 't', slides: 'a\n- b' }, {});
+  check('Slides API not switched on -> says so, with the link', /not switched on/.test(out) && /slides\.googleapis\.com/.test(out), out);
   unmock();
 
   head('google: inside the conversation loop');

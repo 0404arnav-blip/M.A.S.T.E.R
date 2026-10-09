@@ -44,7 +44,7 @@ export function systemPrompt(now = new Date()) {
     'exception: if and only if the user explicitly asks you to learn a named routine, use learn_skill (existing tools only). ' +
     "If asked for something outside your tools, say plainly that you can't.\n" +
     (googleReady()
-      ? 'Google Docs/Sheets are connected: for create_google_doc / create_google_sheet write the full content yourself first. ' +
+      ? 'Google Docs/Sheets/Slides are connected: for create_google_doc / create_google_sheet / create_google_slides write the full content yourself first. ' +
         'The first time, the user approves at google.com/device - tell them to enter the code shown, then it continues by itself.\n'
       : '') +
     `Current date and time: ${when}.`

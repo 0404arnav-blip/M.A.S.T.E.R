@@ -1,8 +1,9 @@
-# Google Docs & Sheets for M.A.S.T.E.R (one-time setup, ~10 minutes)
+# Google Docs, Sheets & Slides for M.A.S.T.E.R (one-time setup, ~10 minutes)
 
-With this on, you can say *"make a Google Doc about the French Revolution"* or *"put my
-expenses in a Google Sheet"* and M.A.S.T.E.R creates it **in your own Google Drive** and gives you
-an **Open** button. Nothing is downloaded. It can also add to a doc or sheet it made earlier.
+With this on, you can say *"make a Google Doc about the French Revolution"*, *"put my
+expenses in a Google Sheet"* or *"make a Google Slides deck on the water cycle"* and M.A.S.T.E.R
+creates it **in your own Google Drive** and gives you an **Open** button. Nothing is downloaded.
+It can also add to a doc, sheet or deck it made earlier.
 
 **What it is allowed to do:** only the narrow `drive.file` permission - it can create files and
 edit the ones *it* created. It cannot see, open, change or delete anything else in your Drive.
@@ -21,11 +22,14 @@ credentials are stored in this repository.
 2. At the top, open the project picker, choose **New project**, call it `MASTER`, and **Create**.
    Make sure it is the selected project.
 
-## 2. Switch on the two APIs
+## 2. Switch on the three APIs
 
 1. Menu (☰) → **APIs & Services** → **Library**.
 2. Search **Google Docs API** → open it → **Enable**.
 3. Back in the Library, search **Google Sheets API** → **Enable**.
+4. Back in the Library, search **Google Slides API** → **Enable**.
+
+(You only need to enable the ones you want to use. The Drive API is *not* needed.)
 
 (The Drive API is *not* needed.)
 
@@ -73,8 +77,12 @@ You can also press **Connect now** in settings to do the sign-in without asking 
 - **Where files go:** the top level of *My Drive*. Search for the title in the Drive app.
 - **Tables in a Doc:** a Google Doc made by M.A.S.T.E.R is text, headings, bullets and bold; for a
   table ask for a **Sheet**.
-- **"Add to my doc"** only works on documents M.A.S.T.E.R created. Say *"list my Google files"*
-  to see them.
+- **Slides:** each slide is a title, bullet points and, if you like, a picture (*"...with a picture
+  of the Bastille"*). Pictures come from Wikimedia Commons and are credited on the slide; Google
+  fetches them itself, so nothing is downloaded to your phone. A deck is capped at 40 slides, and
+  the first slide is a title slide with the date. The look is your Google theme's default.
+- **"Add to my doc / sheet / deck"** only works on files M.A.S.T.E.R created. Say *"list my
+  Google files"* to see them.
 - **Errors you may see:**
   - *"not switched on for your project"* → step 2 (it gives you the link; wait a minute after
     pressing Enable).

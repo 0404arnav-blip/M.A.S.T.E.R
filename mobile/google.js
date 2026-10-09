@@ -19,6 +19,7 @@ const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const REVOKE_URL = 'https://oauth2.googleapis.com/revoke';
 const DOCS_URL = 'https://docs.googleapis.com/v1/documents';
 const SHEETS_URL = 'https://sheets.googleapis.com/v4/spreadsheets';
+const SLIDES_URL = 'https://slides.googleapis.com/v1/presentations';
 const MAX_WAIT_SEC = 240; // how long to wait for you to approve the sign-in
 
 export class GoogleError extends Error {
@@ -53,7 +54,7 @@ const saved = () => store.get('google', {});
 export const isConnected = () => !!(saved().refresh || (access && access.expiresAt > Date.now()));
 
 export const SETUP_HELP =
-  "Google Docs and Sheets aren't set up yet. Open settings (the gear), find the Google section, and follow " +
+  "Google Docs, Sheets and Slides aren't set up yet. Open settings (the gear), find the Google section, and follow " +
   'its "How to get these" link - it takes about ten minutes, once - then paste the Client ID and secret.';
 
 // ---------- sign-in (device flow) ----------
@@ -445,4 +446,232 @@ export async function appendToSheet(file, data, opts = {}) {
     '?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',
     { values: rows }, opts);
   return { file, count: rows.length };
+}
+
+// ---------- Google Slides ----------
+
+// Same plain format as the PC version: each slide is a title line, "- " bullets and an optional
+// "image: <what to show>" line; a blank line starts the next slide.
+export function parseSlides(text) {
+  const slides = [];
+  for (const block of String(text ?? '').replace(/\r\n?/g, '\n').split(/\n\s*\n/)) {
+    const lines = block.split('\n').map((l) => l.replace(/\s+$/, '')).filter((l) => l.trim());
+    if (!lines.length) continue;
+    const title = clean(lines[0]).replace(/^\s*#{1,3}\s*/, '').replace(/^\s*slide\s*\d+\s*[:.\-]\s*/i, '')
+      .replace(/\*\*/g, '').trim();
+    const bullets = [];
+    let image = '';
+    for (const l of lines.slice(1)) {
+      const m = /^\s*image\s*:\s*(.+)$/i.exec(l);
+      if (m) { image = m[1].trim(); continue; }
+      const b = clean(l).replace(/^\s*(?:[-*•]|\d+[.)])\s+/, '').replace(/\*\*(.+?)\*\*/g, '$1')
+        .replace(/\*([^*\s][^*]*?)\*/g, '$1').trim();
+      if (b) bullets.push(b);
+    }
+    slides.push({ title: title || 'Untitled', bullets, image });
+  }
+  return slides.slice(0, 40);
+}
+
+// A picture for a slide from Wikimedia Commons. Google's servers fetch the picture themselves
+// from this public link, so nothing is downloaded to the phone.
+export async function findImage(query, signal) {
+  const q = String(query || '').trim();
+  if (!q) return null;
+  try {
+    const r = await fetch(
+      'https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*&generator=search' +
+      `&gsrsearch=${encodeURIComponent(q)}&gsrnamespace=6&gsrlimit=8&prop=imageinfo&iiprop=url|size|mime&iiurlwidth=900`,
+      { signal });
+    const j = await r.json();
+    const pages = Object.values(j.query?.pages || {}).sort((a, b) => a.index - b.index);
+    for (const p of pages) {
+      const ii = p.imageinfo?.[0];
+      if (ii?.thumburl && /\.(jpe?g|png|gif)$/i.test(ii.thumburl) && ii.thumburl.length < 1900) {
+        return { url: ii.thumburl, w: ii.thumbwidth || 900, h: ii.thumbheight || 600 };
+      }
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') throw e;
+  }
+  return null; // a missing picture is not worth failing the whole deck
+}
+
+const SLIDES_FIELDS = 'presentationId,pageSize,slides(objectId,pageElements(objectId,shape(placeholder))),' +
+  'layouts(objectId,layoutProperties(name),pageElements(shape(placeholder)))';
+const TITLE_RGB = { red: 0.106, green: 0.227, blue: 0.42 };
+const emu = (n) => ({ magnitude: Math.round(n), unit: 'EMU' });
+
+// layout name (e.g. "TITLE_AND_BODY") -> { id, ph: [{type, index}] }, read from Google's own reply
+function readLayouts(pres) {
+  const map = new Map();
+  for (const l of pres?.layouts || []) {
+    const name = l.layoutProperties?.name;
+    if (!name || map.has(name)) continue;
+    map.set(name, {
+      id: l.objectId,
+      ph: (l.pageElements || []).map((e) => e.shape?.placeholder).filter(Boolean)
+        .map((p) => ({ type: p.type, index: p.index ?? 0 })),
+    });
+  }
+  return map;
+}
+
+// Builds the batchUpdate that adds slides. `titleSlide` (optional) is the deck's first, empty slide.
+export function buildSlideRequests(slides, {
+  layouts, W = 9144000, H = 5143500, nonce: stamp = 'x', images = [], titleSlide = null, deckTitle = '', dateText = '',
+} = {}) {
+  const req = [];
+  const colorTitle = (objectId) => req.push({
+    updateTextStyle: {
+      objectId, textRange: { type: 'ALL' },
+      style: { bold: true, foregroundColor: { opaqueColor: { rgbColor: TITLE_RGB } } }, fields: 'bold,foregroundColor',
+    },
+  });
+
+  if (titleSlide?.titleId) {
+    req.push({ insertText: { objectId: titleSlide.titleId, insertionIndex: 0, text: clean(deckTitle) || 'Untitled' } });
+    colorTitle(titleSlide.titleId);
+    if (titleSlide.subtitleId && dateText) {
+      req.push({ insertText: { objectId: titleSlide.subtitleId, insertionIndex: 0, text: dateText } });
+    }
+  }
+
+  slides.forEach((s, i) => {
+    const img = images[i] || null;
+    const wanted = img ? 'TITLE_AND_TWO_COLUMNS' : s.bullets.length ? 'TITLE_AND_BODY' : 'TITLE_ONLY';
+    const L = layouts?.get(wanted) || null;
+    const ph = L?.ph?.length ? L.ph : [{ type: 'TITLE', index: 0 }, { type: 'BODY', index: 0 }, { type: 'BODY', index: 1 }];
+    const titlePh = ph.find((p) => p.type === 'TITLE') || ph.find((p) => p.type === 'CENTERED_TITLE');
+    const bodies = ph.filter((p) => p.type === 'BODY').sort((a, b) => a.index - b.index);
+
+    const sid = `m${stamp}s${i}`;
+    const ids = { title: `${sid}t`, body: `${sid}b`, right: `${sid}r` };
+    const mappings = [];
+    if (titlePh) mappings.push({ layoutPlaceholder: { type: titlePh.type, index: titlePh.index }, objectId: ids.title });
+    if (s.bullets.length || img) {
+      if (bodies[0]) mappings.push({ layoutPlaceholder: { type: 'BODY', index: bodies[0].index }, objectId: ids.body });
+      if (img && bodies[1]) mappings.push({ layoutPlaceholder: { type: 'BODY', index: bodies[1].index }, objectId: ids.right });
+    }
+    req.push({
+      createSlide: {
+        objectId: sid,
+        slideLayoutReference: L ? { layoutId: L.id } : { predefinedLayout: wanted },
+        placeholderIdMappings: mappings,
+      },
+    });
+    if (titlePh) {
+      req.push({ insertText: { objectId: ids.title, insertionIndex: 0, text: clean(s.title) } });
+      colorTitle(ids.title);
+    }
+    if (s.bullets.length && bodies[0]) {
+      req.push({ insertText: { objectId: ids.body, insertionIndex: 0, text: s.bullets.map(clean).join('\n') } });
+    }
+    if (img && bodies[1]) req.push({ deleteObject: { objectId: ids.right } }); // the picture takes the right-hand column
+
+    if (img) {
+      const box = { x: 0.53 * W, y: 0.3 * H, w: 0.42 * W, h: 0.52 * H };
+      const k = Math.min(box.w / img.w, box.h / img.h);
+      const w = img.w * k;
+      const h = img.h * k;
+      const x = box.x + (box.w - w) / 2;
+      const y = box.y + (box.h - h) / 2;
+      req.push({
+        createImage: {
+          objectId: `${sid}i`, url: img.url,
+          elementProperties: {
+            pageObjectId: sid, size: { width: emu(w), height: emu(h) },
+            transform: { scaleX: 1, scaleY: 1, translateX: Math.round(x), translateY: Math.round(y), unit: 'EMU' },
+          },
+        },
+      });
+      req.push({
+        createShape: {
+          objectId: `${sid}c`, shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: sid, size: { width: emu(w), height: emu(0.06 * H) },
+            transform: { scaleX: 1, scaleY: 1, translateX: Math.round(x), translateY: Math.round(y + h + 0.01 * H), unit: 'EMU' },
+          },
+        },
+      });
+      req.push({ insertText: { objectId: `${sid}c`, insertionIndex: 0, text: 'Image: Wikimedia Commons' } });
+      req.push({
+        updateTextStyle: {
+          objectId: `${sid}c`, textRange: { type: 'ALL' },
+          style: {
+            fontSize: { magnitude: 8, unit: 'PT' },
+            foregroundColor: { opaqueColor: { rgbColor: { red: 0.55, green: 0.58, blue: 0.64 } } },
+          },
+          fields: 'fontSize,foregroundColor',
+        },
+      });
+    }
+  });
+  return req;
+}
+
+const firstSlidePlaceholders = (pres) => {
+  const els = pres?.slides?.[0]?.pageElements || [];
+  const find = (...types) => els.find((e) => types.includes(e.shape?.placeholder?.type))?.objectId;
+  return { pageId: pres?.slides?.[0]?.objectId, titleId: find('CENTERED_TITLE', 'TITLE'), subtitleId: find('SUBTITLE') };
+};
+const pageSize = (pres) => ({
+  W: pres?.pageSize?.width?.magnitude || 9144000, H: pres?.pageSize?.height?.magnitude || 5143500,
+});
+const newNonce = () => Date.now().toString(36).slice(-6) + Math.floor(Math.random() * 36 ** 2).toString(36);
+
+// Google can't always fetch a picture; if it says so, try again without pictures rather than lose the deck.
+async function sendSlides(id, build, hadImages, opts) {
+  try {
+    await api('POST', `${SLIDES_URL}/${id}:batchUpdate`, { requests: build(true) }, opts);
+  } catch (e) {
+    if (hadImages && e instanceof GoogleError && e.kind === 'api' && /image|picture|retriev/i.test(e.message)) {
+      await api('POST', `${SLIDES_URL}/${id}:batchUpdate`, { requests: build(false) }, opts);
+      return;
+    }
+    throw e;
+  }
+}
+
+export async function createSlides(title, slidesText, opts = {}) {
+  const name = clean(title).trim() || 'Untitled';
+  const slides = parseSlides(slidesText);
+  const pres = await api('POST', SLIDES_URL, { title: name }, opts);
+  const id = pres.presentationId;
+  const file = { id, type: 'slides', title: name, url: `https://docs.google.com/presentation/d/${id}/edit` };
+  remember(file);
+
+  let info = pres;
+  if (!info.slides?.length || !info.layouts?.length) { // some replies are short; ask for the parts we need
+    info = await api('GET', `${SLIDES_URL}/${id}?fields=${encodeURIComponent(SLIDES_FIELDS)}`, null, opts);
+  }
+  const layouts = readLayouts(info);
+  const { W, H } = pageSize(info);
+  const titleSlide = firstSlidePlaceholders(info);
+  const images = await Promise.all(slides.map((s) => (s.image ? findImage(s.image, opts.signal) : null)));
+  const dateText = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  const stamp = newNonce();
+  const build = (withImages) => buildSlideRequests(slides, {
+    layouts, W, H, nonce: stamp, images: withImages ? images : [], titleSlide, deckTitle: name, dateText,
+  });
+  try {
+    await sendSlides(id, build, images.some(Boolean), opts);
+  } catch (e) {
+    if (e instanceof GoogleError) e.message += ` (An empty deck called "${name}" was still created.)`;
+    throw e;
+  }
+  return { ...file, count: slides.length };
+}
+
+export async function appendToSlides(file, slidesText, opts = {}) {
+  const slides = parseSlides(slidesText);
+  if (!slides.length) throw new GoogleError('api', 'There were no slides to add.');
+  const info = await api('GET', `${SLIDES_URL}/${file.id}?fields=${encodeURIComponent(SLIDES_FIELDS)}`, null, opts);
+  const layouts = readLayouts(info);
+  const { W, H } = pageSize(info);
+  const images = await Promise.all(slides.map((s) => (s.image ? findImage(s.image, opts.signal) : null)));
+  const stamp = newNonce();
+  const build = (withImages) => buildSlideRequests(slides, { layouts, W, H, nonce: stamp, images: withImages ? images : [] });
+  await sendSlides(file.id, build, images.some(Boolean), opts);
+  return { file, count: slides.length };
 }
