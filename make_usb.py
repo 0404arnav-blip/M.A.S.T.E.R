@@ -178,7 +178,8 @@ def main():
 
     if a.build:
         print("building the program (build.bat) ...")
-        if subprocess.run(["cmd", "/c", "build.bat"], cwd=ROOT).returncode != 0:
+        # full path: with NoDefaultCurrentDirectoryInExePath set, cmd won't find "build.bat" in the cwd
+        if subprocess.run(["cmd", "/c", str(ROOT / "build.bat")], cwd=ROOT).returncode != 0:
             fail("build.bat failed")
     if not (DIST / "MASTER.exe").exists():
         fail(r"dist\MASTER\MASTER.exe not found - run build.bat first (or pass --build)")
