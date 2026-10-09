@@ -8,10 +8,14 @@
 // Outlook, Phone Link.
 
 import { store } from './store.js';
+import {
+  isConfigured, createDoc, createSheet, appendToDoc, appendToSheet, findFile, listFiles,
+  GoogleError, SETUP_HELP,
+} from './google.js';
 
 // app.js sets this so tools can offer a tappable button (phones block pages from
 // opening links / starting calls on their own, so the user taps to finish).
-export const hooks = { action() {} };
+export const hooks = { action() {}, status() {} };
 
 const enc = encodeURIComponent;
 const S = (name, description, properties = {}, required = []) => ({
@@ -566,6 +570,80 @@ async function forget_skill({ name }) {
   return `Forgot the skill '${name}'.`;
 }
 
+// ---------- Google Docs & Sheets (needs your own Google client - see GOOGLE-SETUP.md) ----------
+
+function googleUi(ctx) {
+  return {
+    signal: ctx?.signal,
+    onCode({ code, url }) { // first use: the user approves M.A.S.T.E.R at google.com/device
+      hooks.status(`Open google.com/device and enter the code ${code}`);
+      hooks.action({ label: `1. Open ${url.replace(/^https?:\/\//, '')}`, href: url });
+      hooks.action({
+        label: `2. Code ${code} (tap to copy)`,
+        async onClick() { try { await navigator.clipboard.writeText(code); } catch { /* blocked */ } },
+      });
+    },
+  };
+}
+
+async function googleRun(ctx, work) {
+  if (!isConfigured()) return SETUP_HELP;
+  try {
+    return await work(googleUi(ctx));
+  } catch (e) {
+    if (e instanceof GoogleError) return `Couldn't do that: ${e.message}`;
+    throw e;
+  } finally {
+    hooks.status('');
+  }
+}
+
+const noFile = (type, which) =>
+  `I haven't made a Google ${type === 'doc' ? 'Doc' : 'Sheet'}${which && which !== 'last' ? ` matching '${which}'` : ''} yet. ` +
+  "I can only add to ones I created - say 'list my Google files' to see them.";
+
+async function create_google_doc({ title, content }, ctx) {
+  return googleRun(ctx, async (ui) => {
+    const f = await createDoc(title, content, ui);
+    hooks.action({ label: 'Open in Google Docs', href: f.url });
+    return `Created the Google Doc "${f.title}". Tap the button to open it.`;
+  });
+}
+
+async function create_google_sheet({ title, data }, ctx) {
+  return googleRun(ctx, async (ui) => {
+    const f = await createSheet(title, data, ui);
+    hooks.action({ label: 'Open in Google Sheets', href: f.url });
+    return `Created the Google Sheet "${f.title}". Tap the button to open it.`;
+  });
+}
+
+async function add_to_google_doc({ which = 'last', content }, ctx) {
+  return googleRun(ctx, async (ui) => {
+    const f = findFile(which, 'doc');
+    if (!f) return noFile('doc', which);
+    await appendToDoc(f, content, ui);
+    hooks.action({ label: 'Open in Google Docs', href: f.url });
+    return `Added that to the Google Doc "${f.title}".`;
+  });
+}
+
+async function add_to_google_sheet({ which = 'last', data }, ctx) {
+  return googleRun(ctx, async (ui) => {
+    const f = findFile(which, 'sheet');
+    if (!f) return noFile('sheet', which);
+    const { count } = await appendToSheet(f, data, ui);
+    hooks.action({ label: 'Open in Google Sheets', href: f.url });
+    return `Added ${count} row${count === 1 ? '' : 's'} to the Google Sheet "${f.title}".`;
+  });
+}
+
+async function list_google_files() {
+  const l = listFiles();
+  if (!l.length) return "I haven't made any Google documents yet.";
+  return l.map((f, i) => `${i + 1}. ${f.type === 'doc' ? 'Doc' : 'Sheet'}: ${f.title}`).join('\n');
+}
+
 // ---------- registry ----------
 
 export const TOOL_FUNCTIONS = {
@@ -574,9 +652,10 @@ export const TOOL_FUNCTIONS = {
   set_timer, set_reminder, set_recurring_reminder, list_reminders, cancel_reminder,
   remember, recall, forget, add_task, list_tasks, complete_task,
   learn_skill, list_skills, run_skill, forget_skill,
+  create_google_doc, create_google_sheet, add_to_google_doc, add_to_google_sheet, list_google_files,
 };
 
-export const TOOLS = [
+export const BASE_TOOLS = [
   S('get_time', 'Current date and time.'),
   S('web_search', 'Look up facts (Wikipedia) and recent news headlines.', { query: str('search words') }, ['query']),
   S('get_weather', 'Current weather for a place.', { place: str('city or place') }, ['place']),
@@ -604,3 +683,17 @@ export const TOOLS = [
   S('run_skill', 'Run a learned skill by name.', { name: str('skill name') }, ['name']),
   S('forget_skill', 'Delete a learned skill.', { name: str('skill name') }, ['name']),
 ];
+
+export const GOOGLE_TOOLS = [
+  S('create_google_doc', 'Create a Google Doc in the users Google Drive. Write the full text yourself. "# " headings, "- " bullets, **bold**.', { title: str('document title'), content: str('the full text you wrote') }, ['title', 'content']),
+  S('create_google_sheet', 'Create a Google Sheet. Header row first, one row per line, cells separated by |.', { title: str('sheet title'), data: str('the rows you built') }, ['title', 'data']),
+  S('add_to_google_doc', 'Add text to a Google Doc you made earlier (default: the latest).', { which: str('title words, or "last"'), content: str('text to add') }, ['content']),
+  S('add_to_google_sheet', 'Add rows to a Google Sheet you made earlier (default: the latest).', { which: str('title words, or "last"'), data: str('rows to add, cells separated by |') }, ['data']),
+  S('list_google_files', 'List the Google Docs and Sheets you have created.'),
+];
+
+export const ALL_TOOLS = [...BASE_TOOLS, ...GOOGLE_TOOLS];
+
+// Google tools are only offered to the model once Google is set up - they cost prompt tokens
+// against Groq's free per-minute limit, so people who don't use them don't pay for them.
+export const activeTools = () => (isConfigured() ? ALL_TOOLS : BASE_TOOLS);

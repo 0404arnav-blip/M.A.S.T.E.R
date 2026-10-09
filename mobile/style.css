@@ -180,6 +180,7 @@ header {
 .btn.danger { color: var(--danger); }
 .btn:disabled { opacity: .5; }
 .link { color: var(--accent); font-size: .92rem; }
+.sub { margin: 4px 0 0; font-size: 1rem; }
 .note { color: var(--muted); font-size: .92rem; line-height: 1.45; margin: 8px 0; }
 .note.small { font-size: .82rem; }
 .note.ok { color: var(--ok); }

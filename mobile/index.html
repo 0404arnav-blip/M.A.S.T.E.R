@@ -89,6 +89,27 @@
 
     <hr>
 
+    <h3 class="sub">Google Docs &amp; Sheets</h3>
+    <p class="note small">Lets M.A.S.T.E.R create documents and spreadsheets in <em>your own</em> Google account, so there is nothing to download. It can only touch files it creates itself. You need a free Google Cloud client for this (about ten minutes, once): <a class="link" href="https://github.com/0404arnav-blip/M.A.S.T.E.R/blob/main/mobile/GOOGLE-SETUP.md" target="_blank" rel="noopener noreferrer">how to get these two values</a>.</p>
+    <label class="field">
+      <span>Client ID</span>
+      <input id="gClientId" type="text" placeholder="1234-abcd.apps.googleusercontent.com" autocomplete="off" autocapitalize="off" spellcheck="false">
+    </label>
+    <label class="field">
+      <span>Client secret</span>
+      <input id="gSecret" type="password" placeholder="GOCSPX-..." autocomplete="off" autocapitalize="off" spellcheck="false">
+    </label>
+    <div class="row">
+      <button id="btnGSave" class="btn primary" type="button">Save</button>
+      <button id="btnGConnect" class="btn" type="button">Connect now</button>
+      <button id="btnGDisconnect" class="btn danger" type="button" hidden>Disconnect</button>
+    </div>
+    <p id="gMsg" class="note" role="status"></p>
+    <a id="gLink" class="chip" href="#" target="_blank" rel="noopener noreferrer" hidden></a>
+    <p class="note small">Both values are stored only on this phone and sent only to Google.</p>
+
+    <hr>
+
     <div id="installBox">
       <button id="btnInstall" class="btn" type="button" hidden>Install app</button>
       <p id="installHint" class="note small"></p>

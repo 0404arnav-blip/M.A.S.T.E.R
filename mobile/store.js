@@ -32,3 +32,13 @@ export const store = {
     mem.delete(key);
   },
 };
+
+// ---- settings (kept here so every module can read them without importing the brain) ----
+export const DEFAULT_SETTINGS = {
+  key: '', speak: true, rate: 1.05, voiceURI: '',
+  googleClientId: '', googleClientSecret: '',
+};
+export const getSettings = () => ({
+  ...DEFAULT_SETTINGS, ...(globalThis.MASTER_BOOT || {}), ...store.get('settings', {}),
+});
+export const saveSettings = (s) => store.set('settings', { ...getSettings(), ...s });

@@ -15,10 +15,17 @@ currency conversion, timers, one-off and repeating reminders, long-term memory, 
 learned skills, contacts and call buttons, email drafts (never sent), calendar events, open
 a website, copy text.
 
+**Google Docs and Google Sheets (5 more tools, once set up):** "make a Google Doc about...",
+"put this in a Google Sheet", "add that to my notes doc". M.A.S.T.E.R creates the file in *your* Google
+Drive and gives you an **Open** button - nothing is downloaded. It uses only the narrow
+`drive.file` permission, so it can touch only the files it made itself. You need your own
+free Google Cloud client for this: see [GOOGLE-SETUP.md](GOOGLE-SETUP.md) (about ten minutes, once).
+
 ## What it can't do (compared with the PC version)
 
 Anything that needs the PC: opening apps, volume/media keys, lock/sleep, screenshots,
-Word/PowerPoint/Excel creation, reading local files, Outlook, Phone Link.
+Word/PowerPoint/Excel *files*, reading local files, Outlook, Phone Link. (For documents and
+spreadsheets on the phone use Google Docs / Sheets above; there is no PowerPoint equivalent yet.)
 
 - Phones don't let a web page open links or start calls on its own, so those tools give you
   a **button to tap** to finish.
@@ -58,11 +65,13 @@ automatically; a long one shows a message with how long to wait.
 
 ## Tests
 
-`tests/test.html` (served over http, as above) runs 96 checks in the browser: the safe
+`tests/test.html` (served over http, as above) runs 165 checks in the browser: the safe
 calculator, the stream parser against a real recorded Groq response, the live weather /
 currency / search services, reminders, memory and the whole conversation loop with scripted
-Groq replies (rate limits, bad key, offline, interruption, runaway tool loops). No API key
-is used.
+Groq replies (rate limits, bad key, offline, interruption, runaway tool loops), and the
+Google Docs / Sheets feature against scripted Google replies (the device sign-in, refresh,
+the formatting requests checked against a model of a Google Doc, errors, Stop, and that the
+client secret only ever goes to Google's token endpoint). No real key or Google account is used.
 
 ## Privacy and safety
 

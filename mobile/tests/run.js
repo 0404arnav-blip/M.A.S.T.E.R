@@ -2,12 +2,17 @@
 // Real services are used for weather / currency / search; Groq itself is replayed
 // from a recorded stream and scripted replies, so no API key is needed or used.
 
-import { store } from '../store.js';
+import { store, saveSettings } from '../store.js';
 import {
-  parseStream, parseDuration, waitFromError, respond, systemPrompt, saveSettings,
+  parseStream, parseDuration, waitFromError, respond, systemPrompt,
   loadHistory, MAX_TOOL_ROUNDS, GroqError,
 } from '../brain.js';
-import { TOOLS, TOOL_FUNCTIONS, evaluate, resolveSite, checkReminders, hooks } from '../tools.js';
+import { googleTests } from './google_tests.js';
+import { BASE_TOOLS, ALL_TOOLS, activeTools, TOOL_FUNCTIONS, evaluate, resolveSite, checkReminders, hooks } from '../tools.js';
+import {
+  parseMarkup, buildDocRequests, parseTable, findFile, listFiles, GoogleError, connect as gConnect,
+  isConfigured as googleReady, _test as gtest, SETUP_HELP,
+} from '../google.js';
 
 const out = document.getElementById('out');
 let passed = 0, failed = 0;
@@ -96,11 +101,11 @@ eq('line split across reads', (await parseStream(split)).content, 'split test.')
 
 // =========================================================================
 head('prompt size (Groq free tier: 8,000 tokens/minute)');
-const promptChars = systemPrompt().length + JSON.stringify(TOOLS).length;
-check(`system prompt + ${TOOLS.length} tools = ${promptChars} chars (PC version: 12,832 chars ~ 1,971 tokens)`, promptChars < 9000, `${promptChars}`);
-check('every tool has a function', TOOLS.every((t) => Object.hasOwn(TOOL_FUNCTIONS, t.function.name)));
-check('every function has a schema', Object.keys(TOOL_FUNCTIONS).every((n) => TOOLS.some((t) => t.function.name === n)));
-check('no code-execution tool', !TOOLS.some((t) => /exec|eval|shell|run_code|script/i.test(t.function.name)));
+const promptChars = systemPrompt().length + JSON.stringify(BASE_TOOLS).length;
+check(`system prompt + ${BASE_TOOLS.length} tools = ${promptChars} chars (PC version: 12,832 chars ~ 1,971 tokens)`, promptChars < 9000, `${promptChars}`);
+check('every tool has a function', ALL_TOOLS.every((t) => Object.hasOwn(TOOL_FUNCTIONS, t.function.name)));
+check('every function has a schema', Object.keys(TOOL_FUNCTIONS).every((n) => ALL_TOOLS.some((t) => t.function.name === n)));
+check('no code-execution tool', !ALL_TOOLS.some((t) => /exec|eval|shell|run_code|script/i.test(t.function.name)));
 
 // =========================================================================
 head('site resolver');
@@ -182,7 +187,7 @@ let r = await respond('hi there', { onText: (p) => { live += p; } });
 eq('plain reply returned', r.text, 'Hello Arnav.');
 eq('and streamed live', live, 'Hello Arnav.');
 eq('reasoning_effort is low', calls[0].reasoning_effort, 'low');
-eq('tools offered on round 1', Array.isArray(calls[0].tools) && calls[0].tools.length === TOOLS.length, true);
+eq('tools offered on round 1', Array.isArray(calls[0].tools) && calls[0].tools.length === BASE_TOOLS.length, true);
 check('system prompt carries the current time', /Current date and time:/.test(calls[0].messages[0].content));
 eq('history saved', loadHistory().map((m) => m.role), ['user', 'assistant']);
 unmock();
@@ -280,6 +285,8 @@ calls = mockGroq(() => streamResponse(textReply('Teal.')));
 await respond('what is my favourite colour');
 check('saved memory is fed to the model automatically', calls[0].messages.some((m) => m.role === 'system' && /teal/.test(m.content)));
 unmock();
+
+await googleTests({ head, check, eq, throws });
 
 // ---- done ----
 reset();

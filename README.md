@@ -125,7 +125,8 @@ repository or the published download.
 ## On your phone
 
 [`mobile/`](mobile) is an installable web app (PWA) for Android and iPhone: talk or type, replies are
-spoken, and it has 26 of the tools (not the PC-only ones). It is published to GitHub Pages by the workflow in `.github/workflows` (turn it on once under
+spoken, and it has 26 of the tools (not the PC-only ones) - plus Google Docs and Sheets creation
+if you set up a free Google Cloud client ([`mobile/GOOGLE-SETUP.md`](mobile/GOOGLE-SETUP.md)). It is published to GitHub Pages by the workflow in `.github/workflows` (turn it on once under
 *Settings, Pages, Source: GitHub Actions*); open that address on your phone and add it to the
 home screen. It also builds into a single `MASTER-phone.html` that an
 Android phone can open straight from a pendrive and that saves nothing on the phone. See

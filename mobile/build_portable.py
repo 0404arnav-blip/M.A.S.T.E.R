@@ -19,7 +19,7 @@ import re
 import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
-MODULES = ["store", "tools", "brain", "app"]          # dependency order
+MODULES = ["store", "google", "tools", "brain", "app"]          # dependency order
 
 IMPORT_RE = re.compile(r"^import\s*\{([^}]*)\}\s*from\s*'\./(\w+)\.js';?[ \t]*$", re.M)
 EXPORT_NAME_RE = re.compile(r"^export\s+(?:async\s+)?(?:function|const|let|class)\s+(\w+)", re.M)
@@ -48,9 +48,25 @@ def read_key(path) -> str:
     return key
 
 
-def build(key=None) -> str:
-    """Return the single-file HTML. `key` (optional) is baked in as the starting key."""
+def read_google(path) -> dict:
+    """The Google Cloud client (Client ID + secret) for Docs/Sheets. Accepts our own
+    {"googleClientId", "googleClientSecret"}, {"client_id", "client_secret"}, or the JSON Google
+    lets you download ({"installed": {...}} / {"web": {...}})."""
+    raw = json.loads(pathlib.Path(path).read_text(encoding="utf-8-sig"))
+    inner = raw.get("installed") or raw.get("web") or raw
+    cid = str(inner.get("googleClientId") or inner.get("client_id") or "").strip()
+    secret = str(inner.get("googleClientSecret") or inner.get("client_secret") or "").strip()
+    if not cid or not secret:
+        raise ValueError(f"no Google client id/secret found in {path}")
+    return {"googleClientId": cid, "googleClientSecret": secret}
+
+
+def build(key=None, google=None) -> str:
+    """Return the single-file HTML. `key` (optional) is baked in as the starting Groq key;
+    `google` (optional) is the Docs/Sheets client from read_google()."""
     boot = {"key": key} if key else {}
+    if google:
+        boot.update(google)
 
     js = ("window.MASTER_PORTABLE = true;\n"
           f"window.MASTER_BOOT = {json.dumps(boot)};\n"
@@ -73,16 +89,20 @@ if __name__ == "__main__":
     ap.add_argument("out")
     ap.add_argument("--with-key", action="store_true", help="bake in the key from ../config.json")
     ap.add_argument("--key-file", help="bake in the key from this config.json / text file")
+    ap.add_argument("--google-file", help="bake in the Google Docs/Sheets client (see GOOGLE-SETUP.md)")
     a = ap.parse_args()
     key = None
+    google = None
     try:
         if a.key_file:
             key = read_key(a.key_file)
         elif a.with_key:
             key = read_key(HERE.parent / "config.json")
-    except ValueError as e:
+        if a.google_file:
+            google = read_google(a.google_file)
+    except (OSError, ValueError) as e:
         sys.exit(str(e))
     out = pathlib.Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(build(key), encoding="utf-8", newline="\n")
-    print(f"wrote {out} ({out.stat().st_size:,} bytes), key baked in: {bool(key)}")
+    out.write_text(build(key, google), encoding="utf-8", newline="\n")
+    print(f"wrote {out} ({out.stat().st_size:,} bytes), key baked in: {bool(key)}, google client baked in: {bool(google)}")

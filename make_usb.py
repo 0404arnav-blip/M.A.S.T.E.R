@@ -63,7 +63,12 @@ def folder_size(path: pathlib.Path) -> int:
     return sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
 
 
-def readme(key_baked: bool) -> str:
+def readme(key_baked: bool, google_baked: bool = False) -> str:
+    google_note = (
+        "   Google Docs / Sheets: ask for a document and, the first time, M.A.S.T.E.R shows a short code -\n"
+        "   open google.com/device, enter it and approve. (You must be listed as a test user of the\n"
+        "   Google project, or have it published.) Nothing is saved on the phone, so you do this each time.\n"
+        if google_baked else "")
     if key_baked:
         first_start = (
             "It needs an internet connection (it thinks using Groq). A free Groq key is already on\n"
@@ -114,12 +119,16 @@ Groq needs nothing installed.
 ON AN ANDROID PHONE
 -------------------
 1. Plug the stick in (USB-C, or an OTG adapter).
-2. Open the Files app, open the stick, open the MASTER-Phone folder, and tap MASTER-phone.html.
-   Choose Chrome to open it.
+2. Open the Files app, open the stick, open the MASTER-Phone folder, and long-press
+   MASTER-phone.html, then choose  Open with  >  Chrome.
+   If another app (for example WPS Office) grabs the file and says it can't open it: go to
+   Settings > Apps > that app > Open by default > Clear defaults, then try again and pick
+   Chrome ("Just once").
 3. {phone_key}
 4. Tap the mic and allow the microphone when asked. If the mic is blocked you can still type.
 5. USB mode saves NOTHING on the phone: chats, memory and reminders last only until you
    close the page. Reminders ring only while the page is open.
+{google_note}
 
 iPHONE: an iPhone cannot run a web app from a USB stick (its Files app only previews HTML).
 
@@ -131,6 +140,8 @@ def main():
     ap.add_argument("drive", help="the pendrive, e.g. E: or E:\\")
     ap.add_argument("--no-key", action="store_true", help="don't include a key; the person adds their own")
     ap.add_argument("--key-file", help="take the key from this config.json / text file instead of ./config.json")
+    ap.add_argument("--google-file", help="bake the Google Docs/Sheets client (Client ID + secret) into the "
+                                          "phone file; see mobile/GOOGLE-SETUP.md")
     ap.add_argument("--build", action="store_true", help="run build.bat first")
     ap.add_argument("--reset-config", action="store_true", help="replace the settings already on the stick")
     ap.add_argument("--allow-fixed", action="store_true", help="allow a target that isn't a removable drive")
@@ -157,6 +168,13 @@ def main():
         except (OSError, ValueError) as e:
             fail(f"couldn't get a Groq key from {source} ({e}). Use --key-file, or --no-key to make a stick "
                  "where the person adds their own.")
+
+    google = None
+    if a.google_file:
+        try:
+            google = build_portable.read_google(a.google_file)
+        except (OSError, ValueError) as e:
+            fail(f"couldn't read the Google client from {a.google_file} ({e})")
 
     if a.build:
         print("building the program (build.bat) ...")
@@ -201,9 +219,9 @@ def main():
 
     phone_dir = target / "MASTER-Phone"
     phone_dir.mkdir(exist_ok=True)
-    (phone_dir / "MASTER-phone.html").write_text(build_portable.build(key), encoding="utf-8", newline="\n")
+    (phone_dir / "MASTER-phone.html").write_text(build_portable.build(key, google), encoding="utf-8", newline="\n")
 
-    (target / "README-FIRST.txt").write_text(readme(bool(key)), encoding="ascii", newline="\r\n")
+    (target / "README-FIRST.txt").write_text(readme(bool(key), bool(google)), encoding="ascii", newline="\r\n")
 
     ok = sha256(DIST / "MASTER.exe") == sha256(dst / "MASTER.exe")
     files = sum(1 for p in target.rglob("*") if p.is_file() and "System Volume Information" not in p.parts)
@@ -214,6 +232,8 @@ def main():
     print(f"  size on stick                      : {folder_size(target) // 2**20} MB in {files} files")
     if stick_has_key or key:
         print("  REMINDER: this stick holds a Groq key in plain text - treat it like a password.")
+    if google:
+        print("  REMINDER: the phone file also holds your Google client ID and secret in plain text.")
     print("\nEject the stick with 'Safely remove hardware' before unplugging it.")
     if not ok:
         sys.exit(1)

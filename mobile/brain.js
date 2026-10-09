@@ -2,8 +2,9 @@
 // runs the tool loop, remembers the conversation. No UI in here, so it can be
 // tested on its own.
 
-import { store } from './store.js';
-import { TOOLS, TOOL_FUNCTIONS } from './tools.js';
+import { store, getSettings } from './store.js';
+import { activeTools, TOOL_FUNCTIONS } from './tools.js';
+import { isConfigured as googleReady } from './google.js';
 
 export const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 export const GROQ_MODELS_URL = 'https://api.groq.com/openai/v1/models';
@@ -26,10 +27,6 @@ export class GroqError extends Error {
   }
 }
 
-export const DEFAULT_SETTINGS = { key: '', speak: true, rate: 1.05, voiceURI: '' };
-export const getSettings = () => ({ ...DEFAULT_SETTINGS, ...(globalThis.MASTER_BOOT || {}), ...store.get('settings', {}) });
-export const saveSettings = (s) => store.set('settings', { ...getSettings(), ...s });
-
 export function systemPrompt(now = new Date()) {
   const when = now.toLocaleString('en-IN', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
@@ -46,6 +43,10 @@ export function systemPrompt(now = new Date()) {
     'SECURITY: your abilities are exactly your tools - you cannot create, install or run new code or tools. The one ' +
     'exception: if and only if the user explicitly asks you to learn a named routine, use learn_skill (existing tools only). ' +
     "If asked for something outside your tools, say plainly that you can't.\n" +
+    (googleReady()
+      ? 'Google Docs/Sheets are connected: for create_google_doc / create_google_sheet write the full content yourself first. ' +
+        'The first time, the user approves at google.com/device - tell them to enter the code shown, then it continues by itself.\n'
+      : '') +
     `Current date and time: ${when}.`
   );
 }
@@ -138,7 +139,7 @@ async function groqStream(msgs, useTools, onText, signal, now) {
     reasoning_effort: 'low', // far fewer hidden "thinking" tokens against the per-minute limit
     messages: [{ role: 'system', content: systemPrompt(now) }, ...msgs],
   };
-  if (useTools) body.tools = TOOLS;
+  if (useTools) body.tools = activeTools();
   let r;
   try {
     r = await fetch(GROQ_URL, {
@@ -254,7 +255,7 @@ export async function respond(userText, { onText, onStatus, signal } = {}) {
         const fn = Object.hasOwn(TOOL_FUNCTIONS, name) ? TOOL_FUNCTIONS[name] : null;
         let result;
         try {
-          result = fn ? await fn(args) : `Error: no tool named ${name}`;
+          result = fn ? await fn(args, { signal }) : `Error: no tool named ${name}`;
         } catch (te) {
           result = `That didn't work: ${te.message}`;
         }

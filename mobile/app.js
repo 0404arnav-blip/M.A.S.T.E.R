@@ -1,11 +1,13 @@
 // M.A.S.T.E.R on the phone - the screen: chat, voice in (tap the mic), voice out,
 // reminders, settings. The thinking lives in brain.js and tools.js.
 
+import { getSettings, saveSettings } from './store.js';
 import {
-  respond, transcribe, testKey, getSettings, saveSettings, clearHistory, loadHistory,
+  respond, transcribe, testKey, clearHistory, loadHistory,
   normalize, JUNK, friendlyError,
 } from './brain.js';
 import { hooks, checkReminders } from './tools.js';
+import { isConfigured as googleReady, isConnected as googleConnected, connect as googleConnect, disconnect as googleDisconnect } from './google.js';
 
 const VERSION = '1.0.0';
 const $ = (id) => document.getElementById(id);
@@ -27,6 +29,7 @@ function refresh() {
 }
 
 const setStatus = (t) => { statusEl.textContent = t || ''; };
+hooks.status = (t) => setStatus(t);
 const note = (t) => { setStatus(t); if (t) setTimeout(() => { if (statusEl.textContent === t) setStatus(''); }, 5000); };
 
 // ---------- chat rendering (textContent only - never inject model/web text as HTML) ----------
@@ -310,6 +313,15 @@ function fillVoiceList() {
   sel.value = list.some((v) => v.voiceURI === cur) ? cur : '';
 }
 
+function refreshGoogleStatus(msg, cls = 'note') {
+  const el = $('gMsg');
+  el.className = cls;
+  el.textContent = msg ?? (!googleReady() ? 'Not set up.'
+    : googleConnected() ? 'Connected. You can ask me to make a Google Doc or Sheet.'
+      : "Ready. You'll approve it once at google.com/device the first time you ask for a document.");
+  $('btnGDisconnect').hidden = !googleConnected();
+}
+
 function isStandalone() {
   return window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
 }
@@ -323,6 +335,10 @@ function openSettings(firstRun = false) {
   $('keyMsg').textContent = '';
   $('keyMsg').className = 'note';
   $('welcome').hidden = !firstRun;
+  $('gClientId').value = s.googleClientId || '';
+  $('gSecret').value = s.googleClientSecret || '';
+  $('gLink').hidden = true;
+  refreshGoogleStatus();
   fillVoiceList();
   $('notifyMsg').textContent = !('Notification' in window)
     ? 'Alerts are not supported in this browser.'
@@ -387,6 +403,42 @@ $('btnInstall').addEventListener('click', async () => {
   $('btnInstall').hidden = true;
 });
 window.addEventListener('appinstalled', () => { $('btnInstall').hidden = true; });
+
+$('btnGSave').addEventListener('click', () => {
+  saveSettings({ googleClientId: $('gClientId').value.trim(), googleClientSecret: $('gSecret').value.trim() });
+  $('gLink').hidden = true;
+  refreshGoogleStatus();
+});
+
+$('btnGConnect').addEventListener('click', async () => {
+  saveSettings({ googleClientId: $('gClientId').value.trim(), googleClientSecret: $('gSecret').value.trim() });
+  if (!googleReady()) { refreshGoogleStatus('Paste both values first.', 'note bad'); return; }
+  const btn = $('btnGConnect');
+  btn.disabled = true;
+  try {
+    await googleConnect({
+      onCode({ code, url }) {
+        refreshGoogleStatus(`Open the link below and enter this code: ${code}`);
+        const a = $('gLink');
+        a.href = url;
+        a.textContent = `Open ${url.replace(/^https?:\/\//, '')}`;
+        a.hidden = false;
+      },
+    });
+    $('gLink').hidden = true;
+    refreshGoogleStatus('Connected. You can ask me to make a Google Doc or Sheet.', 'note ok');
+  } catch (e) {
+    $('gLink').hidden = true;
+    refreshGoogleStatus(e.message || 'Could not connect.', 'note bad');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('btnGDisconnect').addEventListener('click', async () => {
+  await googleDisconnect();
+  refreshGoogleStatus();
+});
 
 $('btnClear').addEventListener('click', () => {
   if (!confirm('Clear the conversation? Saved memory, tasks and reminders are kept.')) return;
